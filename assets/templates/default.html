@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="x-ua-compatible" content="ie=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="googlebot" content="noindex" />
+    <title>$title$</title>
+    $stylesheets$
+</head>
+
+<body>
+    <nav class="top-controls no-print" aria-label="Page controls">
+        <button class="nav-button" type="button" id="toggle-left-margin" aria-controls="contents-big" aria-pressed="true">Contents</button>
+        <button class="nav-button" type="button" id="toggle-sidenotes" aria-pressed="true">Notes</button>
+    </nav>
+    <div class="page-layout">
+        <div class="toc">
+            <div id="contents-big">
+                <a href="#">
+                    <p class="mini-header">Contents</p>
+                </a>
+                $toc$
+            </div>
+        </div>
+        <div class="text-space">
+            $if(title)$
+            <header class="page-header">
+                <h1 class="pagetitle">$title$</h1>
+            </header>
+            $endif$
+            <main role="main">
+                <article>
+                    <section class="body">
+                        $body$
+                    </section>
+                </article>
+            </main>
+            <footer></footer>
+        </div>
+    </div>
+    <script>
+        (function () {
+            var toggles = [
+                ["toggle-left-margin", "hide-left-margin"],
+                ["toggle-sidenotes", "click-open-notes"]
+            ];
+
+            toggles.forEach(function (toggle) {
+                var button = document.getElementById(toggle[0]);
+                var className = toggle[1];
+
+                if (!button) {
+                    return;
+                }
+
+                function sync() {
+                    button.setAttribute("aria-pressed", String(!document.body.classList.contains(className)));
+                }
+
+                button.addEventListener("click", function () {
+                    document.body.classList.toggle(className);
+                    sync();
+                });
+
+                sync();
+            });
+        }());
+
+        (function () {
+            var body = document.querySelector(".text-space section.body");
+
+            if (!body) {
+                return;
+            }
+
+            var headings = Array.prototype.slice.call(
+                body.querySelectorAll("h1, h2, h3, h4, h5, h6")
+            );
+            var storageKey = "pandocmd:folded-sections:" + window.location.pathname;
+            var folded = readFoldedSections();
+            var foldableSections = [];
+            var foldableNodes = [];
+            var tocLinks = Array.prototype.slice.call(
+                document.querySelectorAll("#contents a[href^=\"#\"], #contents-big a[href^=\"#\"]")
+            );
+
+            headings.forEach(function (heading, index) {
+                var nodes = sectionNodes(heading);
+                var id = ensureHeadingId(heading, index);
+                var button = document.createElement("button");
+                var icon = document.createElement("span");
+                var section = {
+                    id: id,
+                    heading: heading,
+                    button: button,
+                    nodes: nodes,
+                    title: compactText(heading.textContent)
+                };
+
+                heading.classList.add("section-heading-foldable");
+                button.type = "button";
+                button.className = "section-fold-button no-print";
+
+                icon.className = "section-fold-icon";
+                icon.setAttribute("aria-hidden", "true");
+                icon.textContent = ">";
+                button.appendChild(icon);
+
+                button.addEventListener("click", function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    folded[id] = !folded[id];
+                    syncFoldState(true);
+                });
+
+                heading.insertBefore(button, heading.firstChild);
+                foldableSections.push(section);
+                nodes.forEach(function (node) {
+                    if (foldableNodes.indexOf(node) === -1) {
+                        foldableNodes.push(node);
+                    }
+                });
+            });
+
+            tocLinks.forEach(function (link) {
+                link.addEventListener("click", function () {
+                    var target = headingForLink(link);
+
+                    if (target) {
+                        revealHeading(target);
+                    }
+                });
+            });
+
+            syncFoldState(false);
+
+            function readFoldedSections() {
+                var state = Object.create(null);
+
+                try {
+                    JSON.parse(window.localStorage.getItem(storageKey) || "[]").forEach(function (id) {
+                        state[id] = true;
+                    });
+                } catch (error) {
+                    return Object.create(null);
+                }
+
+                return state;
+            }
+
+            function writeFoldedSections() {
+                var ids = foldableSections
+                    .map(function (section) {
+                        return section.id;
+                    })
+                    .filter(function (id) {
+                        return folded[id];
+                    });
+
+                try {
+                    if (ids.length) {
+                        window.localStorage.setItem(storageKey, JSON.stringify(ids));
+                    } else {
+                        window.localStorage.removeItem(storageKey);
+                    }
+                } catch (error) {
+                    return;
+                }
+            }
+
+            function ensureHeadingId(heading, index) {
+                if (heading.id) {
+                    return heading.id;
+                }
+
+                var base = compactText(heading.textContent)
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "-");
+                var candidate;
+                var id;
+                var suffix = 2;
+
+                while (base.charAt(0) === "-") {
+                    base = base.slice(1);
+                }
+
+                while (base.charAt(base.length - 1) === "-") {
+                    base = base.slice(0, -1);
+                }
+
+                candidate = "pandocmd-section-" + (base || "heading") + "-" + (index + 1);
+                id = candidate;
+
+                while (document.getElementById(id)) {
+                    id = candidate + "-" + suffix;
+                    suffix += 1;
+                }
+
+                heading.id = id;
+                return id;
+            }
+
+            function compactText(text) {
+                return (text || "").replace(/\s+/g, " ").trim();
+            }
+
+            function sectionNodes(heading) {
+                var level = headingLevel(heading);
+                var nodes = [];
+                var node = heading.nextElementSibling;
+
+                while (node) {
+                    if (isHeading(node) && headingLevel(node) <= level) {
+                        break;
+                    }
+
+                    nodes.push(node);
+                    node = node.nextElementSibling;
+                }
+
+                return nodes;
+            }
+
+            function isHeading(node) {
+                return (
+                    node.tagName.length === 2 &&
+                    node.tagName.charAt(0) === "H" &&
+                    node.tagName.charAt(1) >= "1" &&
+                    node.tagName.charAt(1) <= "6"
+                );
+            }
+
+            function headingLevel(heading) {
+                return Number(heading.tagName.slice(1));
+            }
+
+            function syncFoldState(persist) {
+                var hiddenNodes = [];
+
+                foldableSections.forEach(function (section) {
+                    var isFolded = Boolean(folded[section.id]);
+
+                    section.heading.classList.toggle("section-heading-folded", isFolded);
+                    section.button.setAttribute("aria-expanded", String(!isFolded));
+                    section.button.setAttribute("aria-label", (isFolded ? "Unfold" : "Fold") + labelSuffix(section.title));
+                    section.button.setAttribute("title", isFolded ? "Unfold section" : "Fold section");
+
+                    if (isFolded) {
+                        section.nodes.forEach(function (node) {
+                            if (hiddenNodes.indexOf(node) === -1) {
+                                hiddenNodes.push(node);
+                            }
+                        });
+                    }
+                });
+
+                foldableNodes.forEach(function (node) {
+                    var isHidden = hiddenNodes.indexOf(node) !== -1;
+
+                    node.classList.toggle("section-fold-hidden", isHidden);
+
+                    if (isHidden) {
+                        node.setAttribute("aria-hidden", "true");
+                    } else {
+                        node.removeAttribute("aria-hidden");
+                    }
+                });
+
+                syncToc();
+
+                if (persist) {
+                    writeFoldedSections();
+                }
+            }
+
+            function labelSuffix(title) {
+                return title ? " section " + title : " section";
+            }
+
+            function syncToc() {
+                tocLinks.forEach(function (link) {
+                    var target = headingForLink(link);
+                    var isFolded = Boolean(target && folded[target.id]);
+                    var isInsideFoldedSection = Boolean(
+                        target &&
+                        !isFolded &&
+                        target.classList.contains("section-fold-hidden")
+                    );
+
+                    link.classList.toggle("section-toc-folded", isFolded);
+                    link.classList.toggle("section-toc-in-folded-section", isInsideFoldedSection);
+                });
+            }
+
+            function headingForLink(link) {
+                var id = link.hash ? link.hash.slice(1) : "";
+
+                if (!id) {
+                    return null;
+                }
+
+                try {
+                    id = decodeURIComponent(id);
+                } catch (error) {
+                    return null;
+                }
+
+                var target = document.getElementById(id);
+
+                return target && isHeading(target) ? target : null;
+            }
+
+            function revealHeading(heading) {
+                var changed = false;
+
+                foldableSections.forEach(function (section) {
+                    if (folded[section.id] && section.nodes.indexOf(heading) !== -1) {
+                        folded[section.id] = false;
+                        changed = true;
+                    }
+                });
+
+                if (changed) {
+                    syncFoldState(true);
+                }
+            }
+        }());
+    </script>
+</body>
+
+</html>
