@@ -21,7 +21,7 @@ local function stylesheet_tags(meta)
     if not util.starts_with(path, "css/") then
       path = "css/" .. path:match("[^/\\]+$")
     end
-    table.insert(lines, '<link rel="stylesheet" href="./' .. path:gsub("\\", "/") .. '" />')
+    table.insert(lines, '<link rel="stylesheet" href="/' .. path:gsub("\\", "/") .. '" />')
   end
   return table.concat(lines, "\n")
 end

@@ -1,0 +1,281 @@
+#!/usr/bin/env fish
+
+set -g default_port 8000
+set -g pandocmd_owned_server_pid ""
+set -g pandocmd_owned_server_pid_file ""
+
+function usage
+    echo "Usage: pandocmd-preview [OPTIONS] FILE.md"
+    echo
+    echo "Build and preview one Markdown file with the pandocmd Lua pipeline."
+    echo
+    echo "Options:"
+    echo "  --build-only      Build once and exit"
+    echo "  --serve-only      Serve the shared assets directory and exit when stopped"
+    echo "  --hash-only       Print the stable path hash for FILE.md and exit"
+    echo "  -p, --port PORT   Preview server port (default: $default_port)"
+    echo "  -h, --help        Show this help"
+end
+
+function fail --argument-names message
+    echo "pandocmd-preview: $message" >&2
+    exit 1
+end
+
+function require_command --argument-names command_name hint
+    if not command -q "$command_name"
+        if test -n "$hint"
+            fail "$command_name not found. $hint"
+        else
+            fail "$command_name not found"
+        end
+    end
+end
+
+function real_path --argument-names path
+    python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$path"
+end
+
+function stable_hash --argument-names path
+    python3 -c 'import hashlib, os, sys; print(hashlib.sha256(os.path.realpath(sys.argv[1]).encode("utf-8")).hexdigest()[:16])' "$path"
+end
+
+function port_open --argument-names port
+    python3 -c 'import socket, sys
+s = socket.socket()
+s.settimeout(0.25)
+try:
+    code = s.connect_ex(("127.0.0.1", int(sys.argv[1])))
+finally:
+    s.close()
+raise SystemExit(0 if code == 0 else 1)' "$port"
+end
+
+function server_pid_file --argument-names port
+    echo "/tmp/pandocmd-preview-$port.pid"
+end
+
+function server_log_file --argument-names port
+    echo "/tmp/pandocmd-preview-$port.log"
+end
+
+function cleanup_owned_server
+    if test -n "$pandocmd_owned_server_pid"
+        kill "$pandocmd_owned_server_pid" 2>/dev/null
+        wait "$pandocmd_owned_server_pid" 2>/dev/null
+    end
+
+    if test -n "$pandocmd_owned_server_pid_file"; and test -f "$pandocmd_owned_server_pid_file"
+        set -l stored_pid (string trim -- (cat "$pandocmd_owned_server_pid_file"))
+        if test "$stored_pid" = "$pandocmd_owned_server_pid"
+            command rm -f "$pandocmd_owned_server_pid_file"
+        end
+    end
+
+    set -g pandocmd_owned_server_pid ""
+    set -g pandocmd_owned_server_pid_file ""
+end
+
+function install_owned_server_traps
+    trap "cleanup_owned_server; exit 130" INT
+    trap "cleanup_owned_server; exit 143" TERM
+    trap "cleanup_owned_server" EXIT
+end
+
+function running_server_pid --argument-names port
+    set -l pid_file (server_pid_file "$port")
+    if test -f "$pid_file"
+        set -l pid (string trim -- (cat "$pid_file"))
+        if test -n "$pid"; and kill -0 "$pid" 2>/dev/null
+            echo "$pid"
+            return 0
+        end
+    end
+    return 1
+end
+
+function ensure_preview_layout --argument-names home
+    set -l preview_dir "$home/assets/preview"
+
+    mkdir -p "$preview_dir"; or fail "could not create $preview_dir"
+end
+
+function build_preview --argument-names home source output
+    ensure_preview_layout "$home"
+    env PANDOCMD_ASSETS_DIR="$home/assets" pandoc "$source" \
+        -f "$home/lua/reader.lua" \
+        -L "$home/lua/filter.lua" \
+        -t "$home/lua/writer.lua" \
+        -o "$output"
+end
+
+function start_server_background --argument-names home port
+    ensure_preview_layout "$home"
+
+    set -l pid (running_server_pid "$port")
+    if test -n "$pid"
+        echo "pandocmd-preview: preview server already running at http://127.0.0.1:$port/ (pid $pid)" >&2
+        return 0
+    end
+
+    if port_open "$port"
+        fail "port $port is already in use; pass --port PORT"
+    end
+
+    set -l pid_file (server_pid_file "$port")
+    set -l log_file (server_log_file "$port")
+
+    python3 -m http.server "$port" --bind 127.0.0.1 --directory "$home/assets" >"$log_file" 2>&1 &
+    set pid $last_pid
+    echo "$pid" >"$pid_file"
+    sleep 0.3
+
+    if not kill -0 "$pid" 2>/dev/null
+        fail "server exited; see $log_file"
+    end
+
+    if not port_open "$port"
+        fail "server did not open port $port; see $log_file"
+    end
+
+    set -g pandocmd_owned_server_pid "$pid"
+    set -g pandocmd_owned_server_pid_file "$pid_file"
+
+    echo "pandocmd-preview: serving $home/assets at http://127.0.0.1:$port/ (pid $pid, log $log_file)" >&2
+end
+
+function serve_foreground --argument-names home port
+    ensure_preview_layout "$home"
+
+    set -l existing_pid (running_server_pid "$port")
+    if test -n "$existing_pid"
+        echo "pandocmd-preview: preview server already running at http://127.0.0.1:$port/ (pid $existing_pid)" >&2
+        return 0
+    end
+
+    if port_open "$port"
+        fail "port $port is already in use; pass --port PORT"
+    end
+
+    set -l pid_file (server_pid_file "$port")
+    echo "pandocmd-preview: serving $home/assets at http://127.0.0.1:$port/" >&2
+    python3 -m http.server "$port" --bind 127.0.0.1 --directory "$home/assets" &
+    set -l pid $last_pid
+    echo "$pid" >"$pid_file"
+    trap "command rm -f $pid_file; kill $pid 2>/dev/null; exit 130" INT
+    trap "command rm -f $pid_file; kill $pid 2>/dev/null; exit 143" TERM
+    trap "command rm -f $pid_file" EXIT
+    wait "$pid"
+    set -l server_status $status
+
+    if test -f "$pid_file"
+        set -l stored_pid (string trim -- (cat "$pid_file"))
+        if test "$stored_pid" = "$pid"
+            command rm -f "$pid_file"
+        end
+    end
+    trap - INT TERM EXIT
+
+    return "$server_status"
+end
+
+function print_watch_files --argument-names home source
+    printf "%s\n" "$source"
+
+    for file in "$home"/lua/*.lua "$home"/assets/templates/*.html "$home"/assets/css/*.css "$home"/assets/math-macros.tex "$home"/assets/bib_style.csl
+        if test -f "$file"
+            printf "%s\n" "$file"
+        end
+    end
+end
+
+function watch_preview --argument-names home source script_path port
+    echo "pandocmd-preview: watching $source" >&2
+    print_watch_files "$home" "$source" | entr -r "$script_path" --build-only --port "$port" "$source"
+end
+
+argparse h/help build-only serve-only hash-only 'p/port=' -- $argv
+or begin
+    usage >&2
+    exit 2
+end
+
+if set -q _flag_help
+    usage
+    exit 0
+end
+
+require_command python3 "Install it with Homebrew: brew install python"
+
+set -l port "$default_port"
+if set -q _flag_port
+    set port $_flag_port[-1]
+end
+
+if not string match -qr '^[0-9]+$' -- "$port"
+    fail "port must be a number"
+end
+if test "$port" -lt 1; or test "$port" -gt 65535
+    fail "port must be between 1 and 65535"
+end
+
+set -l script_path (real_path (status --current-filename))
+set -l script_dir (dirname "$script_path")
+set -l pandocmd_home (dirname "$script_dir")
+
+if not test -f "$pandocmd_home/lua/reader.lua"; or not test -f "$pandocmd_home/lua/filter.lua"; or not test -f "$pandocmd_home/lua/writer.lua"
+    fail "could not locate pandocmd Lua files relative to $script_path"
+end
+if not test -d "$pandocmd_home/assets"
+    fail "could not locate assets relative to $script_path"
+end
+
+if set -q _flag_serve_only
+    if test (count $argv) -ne 0
+        fail "--serve-only does not accept a Markdown file"
+    end
+    serve_foreground "$pandocmd_home" "$port"
+    exit $status
+end
+
+if test (count $argv) -ne 1
+    usage >&2
+    exit 2
+end
+
+set -l source (real_path "$argv[1]")
+if not test -f "$source"
+    fail "source file does not exist: $source"
+end
+
+set -l hash (stable_hash "$source")
+set -l output "$pandocmd_home/assets/preview/$hash.html"
+set -l url "http://127.0.0.1:$port/preview/$hash.html"
+
+if set -q _flag_hash_only
+    echo "$hash"
+    exit 0
+end
+
+require_command pandoc "Install it with Homebrew: brew install pandoc"
+if not set -q _flag_build_only
+    require_command entr "Install it with Homebrew: brew install entr"
+end
+
+build_preview "$pandocmd_home" "$source" "$output"
+or exit $status
+
+echo "pandocmd-preview: built $output" >&2
+echo "$url"
+
+if set -q _flag_build_only
+    exit 0
+end
+
+start_server_background "$pandocmd_home" "$port"
+install_owned_server_traps
+watch_preview "$pandocmd_home" "$source" "$script_path" "$port"
+set -l watch_status $status
+cleanup_owned_server
+trap - INT TERM EXIT
+exit "$watch_status"
