@@ -77,9 +77,85 @@ local function apply_title_conditional(template, has_title)
 end
 
 local function replace_field(template, name, value)
-  return template:gsub("%$" .. name .. "%$", function()
+  local escaped = name:gsub("([^%w])", "%%%1")
+  return template:gsub("%$" .. escaped .. "%$", function()
     return value
   end)
+end
+
+local function live_reload_script()
+  local enabled = os.getenv("PANDOCMD_PREVIEW_LIVE_RELOAD")
+  if not enabled or enabled == "" then
+    return ""
+  end
+
+  local token = enabled:gsub("[^%w%-]", "")
+  if token == "" or token == "1" then
+    token = (tostring(os.time()) .. "-" .. tostring({})):gsub("[^%w%-]", "")
+  end
+  local script = [==[
+    <script data-pandocmd-live-reload-token="__TOKEN__">
+        (function () {
+            var baseline = "token:__TOKEN__";
+            var candidate = null;
+            var delay = 800;
+            var path = window.location.pathname;
+            var tokenPattern = /data-pandocmd-live-reload-token="([^"]+)"/;
+
+            function signature(response, text) {
+                var match = tokenPattern.exec(text);
+
+                if (match) {
+                    return "token:" + match[1];
+                }
+
+                return [
+                    "fallback",
+                    response.headers.get("Last-Modified") || "",
+                    response.headers.get("Content-Length") || "",
+                    text
+                ].join(":");
+            }
+
+            function poll() {
+                window.fetch(path, { cache: "no-store" })
+                    .then(function (response) {
+                        if (!response.ok) {
+                            return null;
+                        }
+
+                        return response.text().then(function (text) {
+                            return signature(response, text);
+                        });
+                    })
+                    .then(function (next) {
+                        if (next === null) {
+                            return;
+                        }
+
+                        if (next === baseline) {
+                            candidate = null;
+                            return;
+                        }
+
+                        if (next === candidate) {
+                            window.location.reload();
+                            return;
+                        }
+
+                        candidate = next;
+                    })
+                    .catch(function () {
+                        return;
+                    });
+            }
+
+            window.setInterval(poll, delay);
+        }());
+    </script>
+]==]
+
+  return script:gsub("__TOKEN__", token)
 end
 
 function Writer(doc, opts)
@@ -102,6 +178,7 @@ function Writer(doc, opts)
   template = replace_field(template, "title", title)
   template = replace_field(template, "stylesheets", stylesheets)
   template = replace_field(template, "toc", raw_meta_blocks(doc.meta.toc))
+  template = replace_field(template, "live-reload", live_reload_script())
   template = replace_field(template, "body", body)
 
   return template
