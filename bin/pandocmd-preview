@@ -18,7 +18,7 @@ function usage
 end
 
 function fail --argument-names message
-    echo "pandocmd-preview: $message" >&2
+    echo "error: $message" >&2
     exit 1
 end
 
@@ -59,10 +59,12 @@ function server_log_file --argument-names port
     echo "/tmp/pandocmd-preview-$port.log"
 end
 
-function cleanup_owned_server
+function cleanup_owned_server --argument-names wait_mode
     if test -n "$pandocmd_owned_server_pid"
         kill "$pandocmd_owned_server_pid" 2>/dev/null
-        wait "$pandocmd_owned_server_pid" 2>/dev/null
+        if test "$wait_mode" = "--wait"
+            wait "$pandocmd_owned_server_pid" 2>/dev/null
+        end
     end
 
     if test -n "$pandocmd_owned_server_pid_file"; and test -f "$pandocmd_owned_server_pid_file"
@@ -115,7 +117,7 @@ function start_server_background --argument-names home port
 
     set -l pid (running_server_pid "$port")
     if test -n "$pid"
-        echo "pandocmd-preview: preview server already running at http://127.0.0.1:$port/ (pid $pid)" >&2
+        echo "preview server already running at http://127.0.0.1:$port/ (pid $pid)" >&2
         return 0
     end
 
@@ -142,7 +144,7 @@ function start_server_background --argument-names home port
     set -g pandocmd_owned_server_pid "$pid"
     set -g pandocmd_owned_server_pid_file "$pid_file"
 
-    echo "pandocmd-preview: serving $home/assets at http://127.0.0.1:$port/ (pid $pid, log $log_file)" >&2
+    echo "serving $home/assets at http://127.0.0.1:$port/ (pid $pid, log $log_file)" >&2
 end
 
 function serve_foreground --argument-names home port
@@ -150,7 +152,7 @@ function serve_foreground --argument-names home port
 
     set -l existing_pid (running_server_pid "$port")
     if test -n "$existing_pid"
-        echo "pandocmd-preview: preview server already running at http://127.0.0.1:$port/ (pid $existing_pid)" >&2
+        echo "preview server already running at http://127.0.0.1:$port/ (pid $existing_pid)" >&2
         return 0
     end
 
@@ -159,7 +161,7 @@ function serve_foreground --argument-names home port
     end
 
     set -l pid_file (server_pid_file "$port")
-    echo "pandocmd-preview: serving $home/assets at http://127.0.0.1:$port/" >&2
+    echo "serving $home/assets at http://127.0.0.1:$port/" >&2
     python3 -m http.server "$port" --bind 127.0.0.1 --directory "$home/assets" &
     set -l pid $last_pid
     echo "$pid" >"$pid_file"
@@ -191,11 +193,11 @@ function print_watch_files --argument-names home source
 end
 
 function watch_preview --argument-names home source script_path port
-    echo "pandocmd-preview: watching $source" >&2
-    print_watch_files "$home" "$source" | entr -r "$script_path" --build-only --port "$port" "$source"
+    echo "watching $source" >&2
+    print_watch_files "$home" "$source" | entr -n "$script_path" --build-only --no-url --port "$port" "$source"
 end
 
-argparse h/help build-only serve-only hash-only 'p/port=' -- $argv
+argparse h/help build-only serve-only hash-only no-url 'p/port=' -- $argv
 or begin
     usage >&2
     exit 2
@@ -266,8 +268,10 @@ end
 build_preview "$pandocmd_home" "$source" "$output"
 or exit $status
 
-echo "pandocmd-preview: built $output" >&2
-echo "$url"
+echo "built $output" >&2
+if not set -q _flag_no_url
+    echo "$url"
+end
 
 if set -q _flag_build_only
     exit 0
@@ -277,6 +281,6 @@ start_server_background "$pandocmd_home" "$port"
 install_owned_server_traps
 watch_preview "$pandocmd_home" "$source" "$script_path" "$port"
 set -l watch_status $status
-cleanup_owned_server
+cleanup_owned_server --wait
 trap - INT TERM EXIT
 exit "$watch_status"
