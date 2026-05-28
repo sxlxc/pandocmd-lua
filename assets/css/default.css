@@ -315,6 +315,80 @@ section.body {
     min-width: 0;
 }
 
+/* Cross-reference previews */
+.xref-preview {
+    position: fixed;
+    z-index: 30;
+    box-sizing: border-box;
+    width: min(42rem, calc(100vw - 2rem));
+    max-height: min(30rem, calc(100vh - 2rem));
+    padding: 0.8rem 1rem;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    background: var(--color-bg);
+    box-shadow: 0 0.35rem 1.4rem rgb(0 0 0 / 18%);
+    text-align: left;
+}
+
+.xref-preview[hidden] {
+    display: none !important;
+}
+
+.xref-preview > :first-child {
+    margin-top: 0;
+}
+
+.xref-preview > :last-child {
+    margin-bottom: 0;
+}
+
+.xref-preview .source-line-link {
+    display: none !important;
+}
+
+.xref-preview .theorem-environment,
+.xref-preview .equation,
+.xref-preview .csl-entry,
+.xref-preview figure,
+.xref-preview table {
+    max-width: 100%;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.xref-preview .math-container,
+.xref-preview .math-container[data-source-line] {
+    display: block;
+    width: auto;
+    margin-left: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.xref-preview .source-line > p:empty,
+.xref-preview .theorem-environment > p:empty {
+    display: none;
+}
+
+.xref-preview .sidenote,
+.xref-preview .marginnote,
+.xref-preview .marginnote-left {
+    display: block;
+    float: none;
+    clear: none;
+    width: auto;
+    margin: 0.5rem 0;
+    position: relative;
+    text-align: left;
+}
+
+.xref-preview .sidenote::before {
+    position: static;
+    margin-right: 0.25em;
+}
+
 /* Navigation */
 .top-controls {
     position: fixed;

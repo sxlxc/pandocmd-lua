@@ -327,6 +327,229 @@
                 }
             }
         }());
+
+        (function () {
+            var body = document.querySelector(".text-space section.body");
+            var targetSelector = [
+                ".theorem-environment[id]",
+                ".equation[id]",
+                ".csl-entry[id]",
+                "figure[id]",
+                "table[id]",
+                "div[id]:not(.source-line):not(.references):not(.csl-bib-body)"
+            ].join(", ");
+            var preview = null;
+            var activeLink = null;
+            var hideTimer = null;
+
+            if (!body) {
+                return;
+            }
+
+            Array.prototype.slice.call(body.querySelectorAll("a[href^=\"#\"]")).forEach(function (link) {
+                link.addEventListener("pointerenter", function () {
+                    show(link);
+                });
+                link.addEventListener("pointerleave", scheduleHide);
+                link.addEventListener("focusin", function () {
+                    show(link);
+                });
+                link.addEventListener("focusout", scheduleHide);
+            });
+
+            function ensurePreview() {
+                if (preview) {
+                    return preview;
+                }
+
+                preview = document.createElement("div");
+                preview.id = "xref-preview";
+                preview.className = "xref-preview no-print";
+                preview.setAttribute("role", "tooltip");
+                preview.hidden = true;
+                preview.addEventListener("pointerenter", cancelHide);
+                preview.addEventListener("pointerleave", scheduleHide);
+                preview.addEventListener("focusin", cancelHide);
+                preview.addEventListener("focusout", scheduleHide);
+                (body.closest(".text-space") || document.body).appendChild(preview);
+
+                return preview;
+            }
+
+            function show(link) {
+                var target = previewTarget(link);
+                var box;
+                var clone;
+
+                if (!target) {
+                    return;
+                }
+
+                cancelHide();
+                box = ensurePreview();
+                clone = target.cloneNode(true);
+                scrubClone(clone);
+
+                if (activeLink && activeLink !== link) {
+                    activeLink.removeAttribute("aria-describedby");
+                }
+
+                activeLink = link;
+                link.setAttribute("aria-describedby", box.id);
+                box.innerHTML = "";
+                box.appendChild(clone);
+                box.hidden = false;
+                box.style.visibility = "hidden";
+                positionPreview(link);
+                box.style.visibility = "";
+
+                window.addEventListener("scroll", syncPosition, true);
+                window.addEventListener("resize", syncPosition);
+                document.addEventListener("keydown", handleKeydown);
+            }
+
+            function hide() {
+                cancelHide();
+
+                if (activeLink) {
+                    activeLink.removeAttribute("aria-describedby");
+                }
+
+                activeLink = null;
+
+                if (preview) {
+                    preview.hidden = true;
+                    preview.innerHTML = "";
+                }
+
+                window.removeEventListener("scroll", syncPosition, true);
+                window.removeEventListener("resize", syncPosition);
+                document.removeEventListener("keydown", handleKeydown);
+            }
+
+            function scheduleHide() {
+                cancelHide();
+                hideTimer = window.setTimeout(function () {
+                    if (isPointerOrFocusInside()) {
+                        return;
+                    }
+
+                    hide();
+                }, 80);
+            }
+
+            function cancelHide() {
+                if (hideTimer) {
+                    window.clearTimeout(hideTimer);
+                    hideTimer = null;
+                }
+            }
+
+            function previewTarget(link) {
+                var id;
+                var target;
+
+                if (
+                    link.classList.contains("source-line-link") ||
+                    link.closest(".toc, #contents, #contents-big, .top-controls, .xref-preview")
+                ) {
+                    return null;
+                }
+
+                id = hashId(link);
+                if (!id) {
+                    return null;
+                }
+
+                target = document.getElementById(id);
+                if (!target || !body.contains(target) || !target.matches(targetSelector)) {
+                    return null;
+                }
+
+                return target;
+            }
+
+            function hashId(link) {
+                var hash = link.hash || "";
+
+                if (hash === "" || hash === "#") {
+                    return "";
+                }
+
+                try {
+                    return decodeURIComponent(hash.slice(1));
+                } catch (error) {
+                    return "";
+                }
+            }
+
+            function scrubClone(node) {
+                Array.prototype.slice.call(node.querySelectorAll(".source-line-link")).forEach(function (child) {
+                    child.parentNode.removeChild(child);
+                });
+
+                Array.prototype.slice.call(node.querySelectorAll("[id], [for]")).forEach(function (child) {
+                    child.removeAttribute("id");
+                    child.removeAttribute("for");
+                });
+
+                node.removeAttribute("id");
+                node.removeAttribute("for");
+            }
+
+            function positionPreview(link) {
+                var gap = 10;
+                var margin = 12;
+                var rect;
+                var left;
+                var top;
+
+                if (!preview || preview.hidden) {
+                    return;
+                }
+
+                rect = link.getBoundingClientRect();
+                left = rect.left + (rect.width / 2) - (preview.offsetWidth / 2);
+                left = Math.max(margin, Math.min(left, window.innerWidth - preview.offsetWidth - margin));
+                top = rect.bottom + gap;
+
+                if (top + preview.offsetHeight > window.innerHeight - margin) {
+                    top = rect.top - preview.offsetHeight - gap;
+                }
+
+                top = Math.max(margin, Math.min(top, window.innerHeight - preview.offsetHeight - margin));
+
+                preview.style.left = Math.round(left) + "px";
+                preview.style.top = Math.round(top) + "px";
+            }
+
+            function syncPosition() {
+                if (!activeLink || !previewTarget(activeLink)) {
+                    hide();
+                    return;
+                }
+
+                positionPreview(activeLink);
+            }
+
+            function handleKeydown(event) {
+                if (event.key === "Escape") {
+                    hide();
+                }
+            }
+
+            function isPointerOrFocusInside() {
+                var focused = document.activeElement;
+
+                return Boolean(
+                    activeLink && activeLink.matches(":hover, :focus") ||
+                    preview && (
+                        preview.matches(":hover") ||
+                        preview.contains(focused)
+                    )
+                );
+            }
+        }());
     </script>
 $live-reload$
 </body>
