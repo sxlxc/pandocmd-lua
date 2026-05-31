@@ -29,7 +29,7 @@
 }
 
 html {
-    font-size: 110%;
+    font-size: 115%;
     scroll-behavior: smooth;
     scroll-padding-top: calc(var(--controls-top) + var(--controls-height) + 1rem);
     scrollbar-gutter: stable;

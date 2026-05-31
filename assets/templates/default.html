@@ -15,6 +15,73 @@
         <button class="nav-button" type="button" id="toggle-left-margin" aria-controls="contents-big" aria-pressed="true">Contents</button>
         <button class="nav-button" type="button" id="toggle-sidenotes" aria-pressed="true">Notes</button>
     </nav>
+    <script>
+        (function () {
+            var toggles = [
+                ["toggle-left-margin", "hide-left-margin"],
+                ["toggle-sidenotes", "click-open-notes"]
+            ];
+            var storageKey = "pandocmd:control-state:" + window.location.pathname;
+            var activeClasses = readControlState();
+
+            toggles.forEach(function (toggle) {
+                var button = document.getElementById(toggle[0]);
+                var className = toggle[1];
+
+                document.body.classList.toggle(className, Boolean(activeClasses[className]));
+
+                if (!button) {
+                    return;
+                }
+
+                function sync() {
+                    button.setAttribute("aria-pressed", String(!document.body.classList.contains(className)));
+                }
+
+                button.addEventListener("click", function () {
+                    document.body.classList.toggle(className);
+                    writeControlState();
+                    sync();
+                });
+
+                sync();
+            });
+
+            function readControlState() {
+                var state = Object.create(null);
+
+                try {
+                    JSON.parse(window.localStorage.getItem(storageKey) || "[]").forEach(function (className) {
+                        state[className] = true;
+                    });
+                } catch (error) {
+                    return Object.create(null);
+                }
+
+                return state;
+            }
+
+            function writeControlState() {
+                var classes = toggles
+                    .map(function (toggle) {
+                        return toggle[1];
+                    })
+                    .filter(function (className) {
+                        return document.body.classList.contains(className);
+                    });
+
+                try {
+                    if (classes.length) {
+                        window.localStorage.setItem(storageKey, JSON.stringify(classes));
+                    } else {
+                        window.localStorage.removeItem(storageKey);
+                    }
+                } catch (error) {
+                    return;
+                }
+            }
+        }());
+    </script>
     <div class="page-layout">
         <div class="toc">
             <div id="contents-big">
@@ -41,33 +108,6 @@
         </div>
     </div>
     <script>
-        (function () {
-            var toggles = [
-                ["toggle-left-margin", "hide-left-margin"],
-                ["toggle-sidenotes", "click-open-notes"]
-            ];
-
-            toggles.forEach(function (toggle) {
-                var button = document.getElementById(toggle[0]);
-                var className = toggle[1];
-
-                if (!button) {
-                    return;
-                }
-
-                function sync() {
-                    button.setAttribute("aria-pressed", String(!document.body.classList.contains(className)));
-                }
-
-                button.addEventListener("click", function () {
-                    document.body.classList.toggle(className);
-                    sync();
-                });
-
-                sync();
-            });
-        }());
-
         (function () {
             var body = document.querySelector(".text-space section.body");
 
