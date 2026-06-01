@@ -528,6 +528,22 @@
                     child.parentNode.removeChild(child);
                 });
 
+                Array.prototype.slice.call(node.querySelectorAll(".section-fold-button")).forEach(function (child) {
+                    child.parentNode.removeChild(child);
+                });
+
+                [node].concat(Array.prototype.slice.call(node.querySelectorAll(".section-fold-hidden"))).forEach(function (child) {
+                    if (child.classList.contains("section-fold-hidden")) {
+                        child.classList.remove("section-fold-hidden");
+                        child.removeAttribute("aria-hidden");
+                    }
+                });
+
+                [node].concat(Array.prototype.slice.call(node.querySelectorAll(".section-heading-foldable, .section-heading-folded"))).forEach(function (child) {
+                    child.classList.remove("section-heading-foldable");
+                    child.classList.remove("section-heading-folded");
+                });
+
                 Array.prototype.slice.call(node.querySelectorAll("[id], [for]")).forEach(function (child) {
                     child.removeAttribute("id");
                     child.removeAttribute("for");
