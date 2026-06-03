@@ -269,6 +269,14 @@ section.body {
     position: relative;
 }
 
+.text-space .source-line[data-source-line] {
+    margin: 1em 0;
+}
+
+.text-space .source-line[data-source-line] > p {
+    margin: 0;
+}
+
 .text-space .math-container[data-source-line] {
     display: grid;
     grid-template-columns: var(--source-line-width) minmax(0, 1fr);
