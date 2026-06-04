@@ -31,9 +31,9 @@ pandocmd-preview path/to/main.md
 ```
 
 The command builds once, starts a shared Python server rooted at this repo's
-`assets/` directory if needed, prints the preview URL, watches the source, Lua
-filters, templates, and CSS for rebuilds, and auto-reloads the browser when the
-preview HTML changes.
+`assets/` directory if needed, logs the preview URL on the watch status line,
+watches the source, Lua filters, templates, and CSS for rebuilds, and
+auto-reloads the browser when the preview HTML changes.
 
 Useful modes:
 

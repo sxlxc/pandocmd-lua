@@ -177,6 +177,31 @@ function build_preview --argument-names home source output reload_signal
     printf "%s\n" "$reload_token" >"$reload_signal"
 end
 
+function start_asset_server --argument-names home port log_file
+    python3 -c '
+import functools
+import http.server
+import sys
+import urllib.parse
+
+port = int(sys.argv[1])
+directory = sys.argv[2]
+
+class PreviewHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path.startswith("/preview/") and (path.endswith(".html") or path.endswith(".reload")):
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        super().end_headers()
+
+handler = functools.partial(PreviewHandler, directory=directory)
+http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
+' "$port" "$home/assets" >"$log_file" 2>&1 &
+    echo $last_pid
+end
+
 function start_server_background --argument-names home port
     ensure_preview_layout "$home"
 
@@ -194,8 +219,7 @@ function start_server_background --argument-names home port
     set -l pid_file (server_pid_file "$port")
     set -l log_file (server_log_file "$port")
 
-    python3 -m http.server "$port" --bind 127.0.0.1 --directory "$home/assets" >"$log_file" 2>&1 &
-    set pid $last_pid
+    set -l pid (start_asset_server "$home" "$port" "$log_file")
     echo "$pid" >"$pid_file"
     sleep 0.3
 
@@ -229,10 +253,10 @@ function serve_foreground --argument-names home port
     end
 
     set -l pid_file (server_pid_file "$port")
+    set -l log_file (server_log_file "$port")
     set -l server_url "http://127.0.0.1:$port/"
     log_status Serving "$home/assets at " (styled stderr url "$server_url")
-    python3 -m http.server "$port" --bind 127.0.0.1 --directory "$home/assets" &
-    set -l pid $last_pid
+    set -l pid (start_asset_server "$home" "$port" "$log_file")
     echo "$pid" >"$pid_file"
     trap "command rm -f $pid_file; kill $pid 2>/dev/null; exit 130" INT
     trap "command rm -f $pid_file; kill $pid 2>/dev/null; exit 143" TERM
@@ -261,8 +285,13 @@ function print_watch_files --argument-names home source
     end
 end
 
-function watch_preview --argument-names home source script_path port
-    log_status Watching (styled stderr source (basename "$source"))
+function watch_preview --argument-names home source script_path port url
+    set -l status_parts (styled stderr source (basename "$source"))
+    if test -n "$url"
+        set -a status_parts " " (styled stderr url "$url")
+    end
+
+    log_status Watching $status_parts
     print_watch_files "$home" "$source" | entr -n "$script_path" --build-only --no-url --port "$port" "$source"
 end
 
@@ -339,7 +368,7 @@ build_preview "$pandocmd_home" "$source" "$output" "$reload_signal"
 or exit $status
 
 log_status Built (styled stderr source (basename "$source")) " -> " (styled stderr hash "$hash")
-if not set -q _flag_no_url
+if not set -q _flag_no_url; and set -q _flag_build_only
     print_url "$url"
 end
 
@@ -349,7 +378,11 @@ end
 
 start_server_background "$pandocmd_home" "$port"
 install_owned_server_traps
-watch_preview "$pandocmd_home" "$source" "$script_path" "$port"
+set -l watch_url ""
+if not set -q _flag_no_url
+    set watch_url "$url"
+end
+watch_preview "$pandocmd_home" "$source" "$script_path" "$port" "$watch_url"
 set -l watch_status $status
 cleanup_owned_server --wait
 trap - INT TERM EXIT
