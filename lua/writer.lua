@@ -96,54 +96,36 @@ local function live_reload_script()
   local script = [==[
     <script data-pandocmd-live-reload-token="__TOKEN__">
         (function () {
-            var baseline = "token:__TOKEN__";
-            var candidate = null;
-            var delay = 800;
+            var baseline = "__TOKEN__";
+            var delay = 150;
             var path = window.location.pathname;
-            var tokenPattern = /data-pandocmd-live-reload-token="([^"]+)"/;
-
-            function signature(response, text) {
-                var match = tokenPattern.exec(text);
-
-                if (match) {
-                    return "token:" + match[1];
-                }
-
-                return [
-                    "fallback",
-                    response.headers.get("Last-Modified") || "",
-                    response.headers.get("Content-Length") || "",
-                    text
-                ].join(":");
-            }
+            var signalPath = path.replace(/\.html$/, ".reload");
 
             function poll() {
-                window.fetch(path, { cache: "no-store" })
+                window.fetch(signalPath, { cache: "no-store" })
                     .then(function (response) {
                         if (!response.ok) {
                             return null;
                         }
 
-                        return response.text().then(function (text) {
-                            return signature(response, text);
-                        });
+                        return response.text();
                     })
                     .then(function (next) {
+                        if (typeof next === "string") {
+                            next = next.trim();
+                        }
+
                         if (next === null) {
                             return;
                         }
 
                         if (next === baseline) {
-                            candidate = null;
                             return;
                         }
 
-                        if (next === candidate) {
+                        if (next) {
                             window.location.reload();
-                            return;
                         }
-
-                        candidate = next;
                     })
                     .catch(function () {
                         return;
