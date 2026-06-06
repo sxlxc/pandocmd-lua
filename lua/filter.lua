@@ -19,8 +19,6 @@ function Pandoc(doc)
   local source_file = util.stringify(doc.meta["pandocmd-source-file"] or "")
   local specs, order = theorems.build_block_specs(doc.meta)
 
-  page_meta.apply(doc)
-
   doc.blocks = equations.preprocess_blocks(doc.blocks)
   local equation_links = {}
   equations.collect_links(doc.blocks, equation_links)
@@ -40,7 +38,9 @@ function Pandoc(doc)
   for k, v in pairs(references.section_numbers(doc.blocks)) do
     links[k] = v
   end
+  page_meta.apply(doc)
   doc.blocks = references.autoref_blocks(doc.blocks, links)
+  doc.blocks = references.render_header_numbers(doc.blocks)
   doc.blocks = theorems.render_blocks(doc.blocks)
   doc.blocks = sidenotes.render_blocks(doc.blocks)
 

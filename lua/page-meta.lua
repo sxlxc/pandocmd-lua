@@ -1,4 +1,5 @@
 local util = require("util")
+local references = require("references")
 
 local M = {}
 
@@ -38,47 +39,16 @@ end
 
 local function toc_entries(blocks)
   local entries = {}
-  local nums = {}
-
-  local function bump(level)
-    for i = #nums + 1, level do
-      nums[i] = 0
+  references.walk_numbered_headers(blocks, function(block, info)
+    if block.level <= 2 and block.attr.identifier ~= "" then
+      entries[#entries + 1] = {
+        level = block.level,
+        identifier = block.attr.identifier,
+        number = info and info.number or nil,
+        content = block.content,
+      }
     end
-    nums[level] = (nums[level] or 0) + 1
-    for i = level + 1, #nums do
-      nums[i] = nil
-    end
-  end
-
-  local function render_number()
-    local parts = {}
-    for _, n in ipairs(nums) do
-      table.insert(parts, tostring(n))
-    end
-    return table.concat(parts, ".")
-  end
-
-  local function walk(block_list)
-    for _, block in ipairs(block_list) do
-      if block.t == "Header" then
-        if not util.has_class(block.attr, "unnumbered") then
-          bump(block.level)
-        end
-        if block.level <= 2 and block.attr.identifier ~= "" then
-          entries[#entries + 1] = {
-            level = block.level,
-            identifier = block.attr.identifier,
-            number = util.has_class(block.attr, "unnumbered") and nil or render_number(),
-            content = block.content,
-          }
-        end
-      elseif block.content then
-        walk(block.content)
-      end
-    end
-  end
-
-  walk(blocks)
+  end)
   return entries
 end
 

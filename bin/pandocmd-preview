@@ -292,7 +292,7 @@ function watch_preview --argument-names home source script_path port url
     end
 
     log_status Watching $status_parts
-    print_watch_files "$home" "$source" | entr -n "$script_path" --build-only --no-url --port "$port" "$source"
+    print_watch_files "$home" "$source" | entr -np "$script_path" --build-only --no-url --port "$port" "$source"
 end
 
 argparse h/help build-only serve-only hash-only no-url 'p/port=' -- $argv

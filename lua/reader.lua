@@ -194,20 +194,106 @@ local function block_specs(config)
   return specs
 end
 
-local function is_theorem_attr(attrs, specs)
-  for cls in attrs:gmatch("%.[%w_%-]+") do
-    if specs[title_case(cls:sub(2))] then
+local function attr_tokens(attrs)
+  local tokens = {}
+  local token = {}
+  local quote = nil
+  local escaped = false
+
+  local function flush()
+    if #token > 0 then
+      table.insert(tokens, table.concat(token))
+      token = {}
+    end
+  end
+
+  for i = 1, #attrs do
+    local c = attrs:sub(i, i)
+    if quote then
+      table.insert(token, c)
+      if escaped then
+        escaped = false
+      elseif c == "\\" then
+        escaped = true
+      elseif c == quote then
+        quote = nil
+      end
+    elseif c == '"' or c == "'" then
+      quote = c
+      table.insert(token, c)
+    elseif c:match("%s") then
+      flush()
+    else
+      table.insert(token, c)
+    end
+  end
+
+  flush()
+  return tokens
+end
+
+local function attr_token_id(token)
+  return token:match("^#(.+)$")
+end
+
+local function attr_token_class(token)
+  return token:match("^%.([^=]+)$")
+end
+
+local function is_theorem_attr(tokens, specs)
+  for _, token in ipairs(tokens) do
+    local cls = attr_token_class(token)
+    if cls and specs[title_case(cls)] then
       return true
     end
   end
   return false
 end
 
+local function has_attr_key(tokens, key)
+  for _, token in ipairs(tokens) do
+    if token:match("^" .. key .. "=") then
+      return true
+    end
+  end
+  return false
+end
+
+local function normalize_fenced_div_attrs(attrs)
+  local tokens = attr_tokens(attrs)
+  local ids = {}
+  local classes = {}
+  local others = {}
+
+  for _, token in ipairs(tokens) do
+    if attr_token_id(token) then
+      table.insert(ids, token)
+    elseif attr_token_class(token) then
+      table.insert(classes, token)
+    else
+      table.insert(others, token)
+    end
+  end
+
+  local normalized = {}
+  for _, token in ipairs(ids) do
+    table.insert(normalized, token)
+  end
+  for _, token in ipairs(classes) do
+    table.insert(normalized, token)
+  end
+  for _, token in ipairs(others) do
+    table.insert(normalized, token)
+  end
+
+  return table.concat(normalized, " "), tokens
+end
+
 local function escape_attr_value(s)
   return (s:gsub("\\", "\\\\"):gsub('"', '\\"'))
 end
 
-local function normalize_theorem_fence_title(line, specs)
+local function normalize_fenced_div(line, specs)
   local indent, rest = line:match("^(%s*)(.*)$")
   local fence, after_fence = rest:match("^(:+)(.*)$")
   if not fence or #fence < 3 then
@@ -217,11 +303,20 @@ local function normalize_theorem_fence_title(line, specs)
   if not attr_body then
     return line
   end
+  local normalized_attrs, tokens = normalize_fenced_div_attrs(attr_body)
+  local suffix = after_attr
   local title = trim(after_attr)
-  if title == "" or not is_theorem_attr(attr_body, specs) then
+  if is_theorem_attr(tokens, specs) and title ~= "" then
+    suffix = ""
+    if not has_attr_key(tokens, "title") then
+      normalized_attrs = normalized_attrs .. ' title="' .. escape_attr_value(title) .. '"'
+    end
+  end
+
+  if normalized_attrs == attr_body and suffix == after_attr then
     return line
   end
-  return indent .. fence .. " {" .. attr_body .. ' title="' .. escape_attr_value(title) .. '"}'
+  return indent .. fence .. " {" .. normalized_attrs .. "}" .. suffix
 end
 
 local function leading_indent(line)
@@ -306,7 +401,11 @@ end
 local function is_fenced_div_opening(line)
   local stripped = line:gsub("^%s+", "")
   local fence, rest = stripped:match("^(:+)(.*)$")
-  return fence ~= nil and #fence >= 3 and trim(rest) ~= ""
+  if not fence or #fence < 3 then
+    return false
+  end
+  rest = trim(rest)
+  return rest:match("^%{.*%}$") ~= nil or rest:match("^[%w_%-]+$") ~= nil
 end
 
 local function is_fenced_div_closing(line)
@@ -412,11 +511,12 @@ end
 local function render_extra_macros(math)
   local lines = {}
   for name, body in pairs(math or {}) do
-    if not starts_with(name, "\\") then
-      name = "\\" .. name
+    local macro_name = name
+    if not starts_with(macro_name, "\\") then
+      macro_name = "\\" .. macro_name
     end
-    table.insert(lines, "\\providecommand{" .. name .. "}{}")
-    table.insert(lines, "\\renewcommand{" .. name .. "}{" .. body .. "}")
+    table.insert(lines, "\\providecommand{" .. macro_name .. "}{}")
+    table.insert(lines, "\\renewcommand{" .. macro_name .. "}{" .. body .. "}")
   end
   return table.concat(lines, "\n")
 end
@@ -450,7 +550,7 @@ function Reader(input, reader_options)
   local normalized = {}
 
   for _, line in ipairs(body_lines) do
-    table.insert(normalized, normalize_theorem_fence_title(line, specs))
+    table.insert(normalized, normalize_fenced_div(line, specs))
   end
 
   local annotated = annotate_source_lines(body_start, normalized)

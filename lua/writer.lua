@@ -143,7 +143,7 @@ end
 function Writer(doc, opts)
   local html_opts = pandoc.WriterOptions({
     html_math_method = "mathml",
-    number_sections = true,
+    number_sections = false,
     toc_depth = 2,
   })
   local body = pandoc.write(doc, "html5", html_opts)

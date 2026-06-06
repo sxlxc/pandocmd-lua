@@ -468,10 +468,6 @@ td {
     padding: 8px 10px;
 }
 
-td:last-of-type {
-    text-align: center;
-}
-
 tbody > tr:nth-of-type(even) {
     background-color: rgb(237 238 242);
 }
