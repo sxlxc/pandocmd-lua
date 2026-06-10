@@ -100,6 +100,12 @@
             <main role="main">
                 <article>
                     <section class="body">
+                        $if(abstract)$
+                        <div class="abstract">
+                            <div class="abstract-title">$abstract-title$</div>
+                            $abstract$
+                        </div>
+                        $endif$
                         $body$
                     </section>
                 </article>

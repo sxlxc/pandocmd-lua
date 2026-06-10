@@ -167,7 +167,9 @@ end
 function build_preview --argument-names home source output reload_signal
     ensure_preview_layout "$home"
     set -l reload_token (python3 -c 'import secrets; print(secrets.token_hex(8))')
+    set -l source_dir (dirname "$source")
     env PANDOCMD_ASSETS_DIR="$home/assets" PANDOCMD_PREVIEW_LIVE_RELOAD="$reload_token" pandoc "$source" \
+        --resource-path "$source_dir:." \
         -f "$home/lua/reader.lua" \
         -L "$home/lua/filter.lua" \
         -t "$home/lua/writer.lua" \

@@ -249,6 +249,11 @@ section.body {
     margin-top: 0;
 }
 
+section.body .abstract-title {
+    font-weight: bold;
+    text-align: center;
+}
+
 .page-header {
     margin: 0;
 }

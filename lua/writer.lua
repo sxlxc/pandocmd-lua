@@ -66,14 +66,18 @@ local function template_path(meta)
   return join_path(assets, "templates/default.html")
 end
 
+local function apply_conditional(template, name, enabled)
+  local escaped = name:gsub("([^%w])", "%%%1")
+  return template:gsub("%$if%(" .. escaped .. "%)%$(.-)%$endif%$", function(content)
+    if enabled then
+      return content
+    end
+    return ""
+  end)
+end
+
 local function apply_title_conditional(template, has_title)
-  if has_title then
-    template = template:gsub("%$if%(title%)%$", "")
-    template = template:gsub("%$endif%$", "")
-  else
-    template = template:gsub("%s*%$if%(title%)%$.-%s*%$endif%$", "")
-  end
-  return template
+  return apply_conditional(template, "title", has_title)
 end
 
 local function replace_field(template, name, value)
@@ -149,15 +153,21 @@ function Writer(doc, opts)
   local body = pandoc.write(doc, "html5", html_opts)
   local title = stringify(doc.meta.title or "")
   local has_title = title ~= ""
+  local abstract = raw_meta_blocks(doc.meta.abstract)
+  local has_abstract = abstract ~= ""
+  local abstract_title = stringify(doc.meta["abstract-title"] or "Abstract")
   local template = read_file(template_path(doc.meta))
     or error("could not read pandocmd template")
 
   template = apply_title_conditional(template, has_title)
+  template = apply_conditional(template, "abstract", has_abstract)
   local stylesheets = raw_meta_blocks(doc.meta.stylesheets)
   if stylesheets ~= "" then
     stylesheets = stylesheets .. "\n"
   end
   template = replace_field(template, "title", title)
+  template = replace_field(template, "abstract-title", abstract_title)
+  template = replace_field(template, "abstract", abstract)
   template = replace_field(template, "stylesheets", stylesheets)
   template = replace_field(template, "toc", raw_meta_blocks(doc.meta.toc))
   template = replace_field(template, "live-reload", live_reload_script())
