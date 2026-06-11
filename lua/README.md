@@ -15,15 +15,14 @@ pandoc main.md \
 
 The reader does the pre-parse work that cannot be done by a normal AST filter:
 source-line marker injection, theorem fence title normalization, and TeX macro
-prepending. The filter ports equations, source-line labels, pangu spacing,
-theorem/autoref handling, sidenotes, stylesheet metadata, and citeproc metadata.
+prepending. The filter ports equations, source-line labels, theorem/autoref
+handling, sidenotes, stylesheet metadata, and citeproc metadata.
 The writer applies the existing default HTML template with Hakyll-style literal
 substitution, avoiding Pandoc template indentation changes for multiline fields.
 
 `filter.lua` is only the Pandoc entrypoint. The individual passes live in
-`equations.lua`, `source-lines.lua`, `pangu.lua`, `theorems.lua`,
-`sidenotes.lua`, `references.lua`, and `page-meta.lua`, with shared helpers in
-`util.lua`.
+`equations.lua`, `source-lines.lua`, `theorems.lua`, `sidenotes.lua`,
+`references.lua`, and `page-meta.lua`, with shared helpers in `util.lua`.
 
 Asset resolution uses this order:
 

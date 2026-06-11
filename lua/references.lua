@@ -66,16 +66,21 @@ end
 
 function M.walk_numbered_headers(blocks, callback)
   local state = new_section_state()
-  local function walk(block_list)
-    for _, block in ipairs(block_list) do
-      if block.t == "Header" then
-        callback(block, state.next(block))
-      elseif block.content then
-        walk(block.content)
-      end
+  util.walk_blocks(blocks, function(block)
+    if block.t == "Header" then
+      callback(block, state.next(block))
     end
-  end
-  walk(blocks)
+  end)
+end
+
+function M.has_appendix_headers(blocks)
+  local found = false
+  util.walk_blocks(blocks, function(block)
+    if block.t == "Header" and util.has_class(block.attr, "appendix") then
+      found = true
+    end
+  end)
+  return found
 end
 
 local function header_number_span(number)
@@ -104,13 +109,39 @@ function M.section_numbers(blocks)
 end
 
 local function autoref_cite(inline, links)
-  if #inline.citations > 0 then
-    local citeid = inline.citations[1].id
-    local title = links[citeid]
-    if title then
-      return pandoc.Link(util.inline_text(title), "#" .. citeid, title)
+  if #inline.citations == 0 then
+    return nil
+  end
+
+  for _, citation in ipairs(inline.citations) do
+    if links[citation.id] == nil then
+      return nil
     end
   end
+
+  local out = pandoc.List({})
+  for i, citation in ipairs(inline.citations) do
+    if i > 1 then
+      out:insert(pandoc.Str(";"))
+      out:insert(pandoc.Space())
+    end
+    for _, prefix in ipairs(citation.prefix) do
+      out:insert(prefix)
+    end
+    if #citation.prefix > 0 then
+      out:insert(pandoc.Space())
+    end
+    local title = links[citation.id]
+    out:insert(pandoc.Link(util.inline_text(title), "#" .. citation.id, title))
+    for _, suffix in ipairs(citation.suffix) do
+      out:insert(suffix)
+    end
+  end
+
+  if #out == 1 then
+    return out[1]
+  end
+  return out
 end
 
 function M.autoref_blocks(blocks, links)

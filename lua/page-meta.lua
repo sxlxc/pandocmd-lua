@@ -11,18 +11,22 @@ local function stylesheet_tags(meta)
     "css/chao-theorems.css",
     "css/sidenotes.css",
   }
-  if meta.pandocmd and meta.pandocmd.css and meta.pandocmd.css.t == "MetaList" then
+  local pandocmd = pandoc.utils.type(meta.pandocmd) == "table" and meta.pandocmd or {}
+  local configured_css = pandocmd.css
+  if configured_css and pandoc.utils.type(configured_css) == "List" then
     css = {}
-    for _, value in ipairs(meta.pandocmd.css) do
+    for _, value in ipairs(configured_css) do
       table.insert(css, util.stringify(value))
     end
+  elseif configured_css then
+    css = { util.stringify(configured_css) }
   end
   local lines = {}
   for _, path in ipairs(css) do
     if not util.starts_with(path, "css/") then
       path = "css/" .. path:match("[^/\\]+$")
     end
-    table.insert(lines, '<link rel="stylesheet" href="/' .. path:gsub("\\", "/") .. '" />')
+    table.insert(lines, '<link rel="stylesheet" href="/' .. util.escape_html(path:gsub("\\", "/")) .. '" />')
   end
   return table.concat(lines, "\n")
 end
@@ -104,9 +108,12 @@ local function generate_toc(blocks)
   return table.concat(out, "\n")
 end
 
-function M.apply(doc)
+function M.apply(doc, options)
+  options = options or {}
   doc.meta.stylesheets = pandoc.MetaBlocks({ pandoc.RawBlock("html", stylesheet_tags(doc.meta)) })
-  doc.meta.toc = pandoc.MetaBlocks({ pandoc.RawBlock("html", generate_toc(doc.blocks)) })
+  if options.custom_section_numbers then
+    doc.meta.toc = pandoc.MetaBlocks({ pandoc.RawBlock("html", generate_toc(doc.blocks)) })
+  end
   M.add_citeproc_meta(doc)
 end
 

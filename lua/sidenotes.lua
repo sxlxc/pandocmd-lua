@@ -12,6 +12,17 @@ end
 
 function M.render_blocks(blocks)
   local counter = -1
+  local function has_note(inlines)
+    for _, inline in ipairs(inlines) do
+      if inline.t == "Note" then
+        return true
+      elseif inline.content and has_note(inline.content) then
+        return true
+      end
+    end
+    return false
+  end
+
   local function render_inlines(inlines)
     local out_blocks = pandoc.List({})
     local acc = pandoc.List({})
@@ -66,13 +77,21 @@ function M.render_blocks(blocks)
     local out = pandoc.List({})
     for _, block in ipairs(block_list) do
       if block.t == "Para" then
-        out:insert(pandoc.Para({ pandoc.Str("") }))
-        for _, b in ipairs(render_inlines(block.content)) do
-          out:insert(b)
+        if has_note(block.content) then
+          out:insert(pandoc.Para({ pandoc.Str("") }))
+          for _, b in ipairs(render_inlines(block.content)) do
+            out:insert(b)
+          end
+        else
+          out:insert(block)
         end
       elseif block.t == "Plain" then
-        for _, b in ipairs(render_inlines(block.content)) do
-          out:insert(b)
+        if has_note(block.content) then
+          for _, b in ipairs(render_inlines(block.content)) do
+            out:insert(b)
+          end
+        else
+          out:insert(block)
         end
       elseif block.t == "BulletList" or block.t == "OrderedList" then
         local items = pandoc.List({})

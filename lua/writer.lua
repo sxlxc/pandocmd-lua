@@ -6,6 +6,11 @@
 
 local stringify = pandoc.utils.stringify
 
+local inline_writer_options = pandoc.WriterOptions({
+  html_math_method = "mathml",
+  wrap_text = "none",
+})
+
 local function read_file(path)
   local fh = io.open(path, "r")
   if not fh then
@@ -54,13 +59,43 @@ local function raw_meta_blocks(value)
   return table.concat(lines, "\n")
 end
 
+local function meta_inlines(value)
+  if value == nil then
+    return pandoc.List({})
+  end
+  local value_type = pandoc.utils.type(value)
+  if value_type == "Inlines" then
+    return value
+  elseif value_type == "Blocks" then
+    return pandoc.utils.blocks_to_inlines(value)
+  end
+  return pandoc.List({ pandoc.Str(stringify(value)) })
+end
+
+local function meta_inline_html(value)
+  local html = pandoc.write(pandoc.Pandoc({ pandoc.Plain(meta_inlines(value)) }), "html5", inline_writer_options)
+  return html:gsub("^<p>", ""):gsub("</p>%s*$", "")
+end
+
+local function generated_toc(doc, number_sections)
+  local toc_opts = pandoc.WriterOptions({
+    html_math_method = "mathml",
+    number_sections = number_sections,
+    table_of_contents = true,
+    template = "$toc$",
+    toc_depth = 2,
+  })
+  return pandoc.write(doc, "html5", toc_opts)
+end
+
 local function template_path(meta)
   local from_env = os.getenv("PANDOCMD_TEMPLATE")
   if from_env and from_env ~= "" then
     return from_env
   end
-  if meta.pandocmd and meta.pandocmd.template then
-    return stringify(meta.pandocmd.template)
+  local pandocmd = pandoc.utils.type(meta.pandocmd) == "table" and meta.pandocmd or {}
+  if pandocmd.template then
+    return stringify(pandocmd.template)
   end
   local assets = stringify(meta["pandocmd-assets-dir"] or "assets")
   return join_path(assets, "templates/default.html")
@@ -145,17 +180,17 @@ local function live_reload_script()
 end
 
 function Writer(doc, opts)
+  local custom_section_numbers = doc.meta["pandocmd-custom-section-numbers"] == true
   local html_opts = pandoc.WriterOptions({
     html_math_method = "mathml",
-    number_sections = false,
-    toc_depth = 2,
+    number_sections = not custom_section_numbers,
   })
   local body = pandoc.write(doc, "html5", html_opts)
-  local title = stringify(doc.meta.title or "")
+  local title = meta_inline_html(doc.meta.title)
   local has_title = title ~= ""
   local abstract = raw_meta_blocks(doc.meta.abstract)
   local has_abstract = abstract ~= ""
-  local abstract_title = stringify(doc.meta["abstract-title"] or "Abstract")
+  local abstract_title = meta_inline_html(doc.meta["abstract-title"] or pandoc.List({ pandoc.Str("Abstract") }))
   local template = read_file(template_path(doc.meta))
     or error("could not read pandocmd template")
 
@@ -169,7 +204,11 @@ function Writer(doc, opts)
   template = replace_field(template, "abstract-title", abstract_title)
   template = replace_field(template, "abstract", abstract)
   template = replace_field(template, "stylesheets", stylesheets)
-  template = replace_field(template, "toc", raw_meta_blocks(doc.meta.toc))
+  template = replace_field(
+    template,
+    "toc",
+    custom_section_numbers and raw_meta_blocks(doc.meta.toc) or generated_toc(doc, true)
+  )
   template = replace_field(template, "live-reload", live_reload_script())
   template = replace_field(template, "body", body)
 

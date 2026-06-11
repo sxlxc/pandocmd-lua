@@ -5,12 +5,8 @@
 --   * inject source-line marker comments
 --   * prepend TeX macros before Pandoc's markdown reader runs
 
-Extensions = {
-  tex_math_double_backslash = true,
-  tex_math_single_backslash = true,
-  latex_macros = true,
-  raw_tex = true,
-}
+local reader_format = "markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex"
+local stringify = pandoc.utils.stringify
 
 local default_block_specs = {
   Theorem = { title = "Theorem", numbered = true },
@@ -34,6 +30,13 @@ end
 
 local function starts_with(s, prefix)
   return s:sub(1, #prefix) == prefix
+end
+
+local function map_field(value, key)
+  if value and pandoc.utils.type(value) == "table" then
+    return value[key]
+  end
+  return nil
 end
 
 local function dirname(path)
@@ -82,15 +85,6 @@ local function split_lines(text)
   return lines
 end
 
-local function unquote_yaml_scalar(value)
-  value = trim(value or "")
-  local q = value:sub(1, 1)
-  if (q == '"' or q == "'") and value:sub(-1) == q then
-    value = value:sub(2, -2)
-  end
-  return value:gsub('\\"', '"'):gsub("\\\\", "\\")
-end
-
 local function yaml_front_matter(text)
   local lines = split_lines(text)
   if not lines[1] or trim(lines[1]) ~= "---" then
@@ -114,62 +108,13 @@ local function yaml_front_matter(text)
   return nil, 1, lines
 end
 
-local function parse_front_matter(text)
+local function front_matter(text, reader_options)
   local yaml, body_start, body_lines = yaml_front_matter(text)
-  local config = {
-    pandocmd = {},
-    math = {},
-    blocks = {},
-    bibliography = nil,
-  }
   if not yaml then
-    return config, body_start, body_lines, yaml
+    return {}, body_start, body_lines, nil
   end
-
-  local section = nil
-  local block_name = nil
-  for _, line in ipairs(split_lines(yaml)) do
-    if line:match("^%s*$") or line:match("^%s*#") then
-      goto continue
-    end
-
-    local top_key, top_value = line:match("^([%w_%-]+):%s*(.-)%s*$")
-    if top_key and not line:match("^%s") then
-      section = top_key
-      block_name = nil
-      if top_key == "bibliography" and top_value ~= "" then
-        config.bibliography = unquote_yaml_scalar(top_value)
-      end
-      goto continue
-    end
-
-    if section == "pandocmd" then
-      local key, value = line:match("^%s+([%w_%-]+):%s*(.-)%s*$")
-      if key and value ~= "" then
-        config.pandocmd[key] = unquote_yaml_scalar(value)
-      end
-    elseif section == "math" then
-      local key, value = line:match("^%s+([^:]+):%s*(.-)%s*$")
-      if key and value ~= "" then
-        config.math[trim(key)] = unquote_yaml_scalar(value)
-      end
-    elseif section == "blocks" then
-      local name = line:match("^%s+([%w_%-]+):%s*$")
-      if name then
-        block_name = name
-        config.blocks[block_name] = config.blocks[block_name] or {}
-      else
-        local key, value = line:match("^%s+%s+([%w_%-]+):%s*(.-)%s*$")
-        if block_name and key and value ~= "" then
-          config.blocks[block_name][key] = unquote_yaml_scalar(value)
-        end
-      end
-    end
-
-    ::continue::
-  end
-
-  return config, body_start, body_lines, yaml
+  local doc = pandoc.read("---\n" .. yaml .. "\n---\n", reader_format, reader_options)
+  return doc.meta, body_start, body_lines, yaml
 end
 
 local function title_case(s)
@@ -178,16 +123,22 @@ local function title_case(s)
   end))
 end
 
-local function block_specs(config)
+local function block_specs(meta)
   local specs = {}
   for class, spec in pairs(default_block_specs) do
     specs[class] = { title = spec.title, numbered = spec.numbered }
   end
-  for class, spec in pairs(config.blocks or {}) do
+  local blocks = meta.blocks
+  if pandoc.utils.type(blocks) ~= "table" then
+    return specs
+  end
+  for class, spec in pairs(blocks) do
     local key = title_case(class)
-    local counter = spec.counter
+    local counter = map_field(spec, "counter")
+    local title = map_field(spec, "title")
+    counter = counter and stringify(counter) or nil
     specs[key] = {
-      title = spec.title or title_case(class),
+      title = title and stringify(title) or title_case(class),
       numbered = not (counter == "none" or counter == "false"),
     }
   end
@@ -493,7 +444,7 @@ local function annotate_source_lines(start_line, lines)
   return table.concat(out, "\n")
 end
 
-local function resolve_assets_dir(source_name, config)
+local function resolve_assets_dir(source_name, meta)
   local cli_assets = os.getenv("PANDOCMD_ASSETS_DIR")
   if cli_assets and cli_assets ~= "" then
     return cli_assets
@@ -502,21 +453,25 @@ local function resolve_assets_dir(source_name, config)
   if env_assets and env_assets ~= "" then
     return env_assets
   end
-  if config.pandocmd and config.pandocmd["assets-dir"] then
-    return join_path(dirname(source_name), config.pandocmd["assets-dir"])
+  local assets_dir = map_field(meta.pandocmd, "assets-dir")
+  if assets_dir then
+    return join_path(dirname(source_name), stringify(assets_dir))
   end
   return "assets"
 end
 
-local function render_extra_macros(math)
+local function render_extra_macros(math_meta)
   local lines = {}
-  for name, body in pairs(math or {}) do
+  if pandoc.utils.type(math_meta) ~= "table" then
+    return ""
+  end
+  for name, body in pairs(math_meta or {}) do
     local macro_name = name
     if not starts_with(macro_name, "\\") then
       macro_name = "\\" .. macro_name
     end
     table.insert(lines, "\\providecommand{" .. macro_name .. "}{}")
-    table.insert(lines, "\\renewcommand{" .. macro_name .. "}{" .. body .. "}")
+    table.insert(lines, "\\renewcommand{" .. macro_name .. "}{" .. stringify(body) .. "}")
   end
   return table.concat(lines, "\n")
 end
@@ -541,12 +496,13 @@ end
 function Reader(input, reader_options)
   local source = source_name(input)
   local text = tostring(input)
-  local config, body_start, body_lines, yaml = parse_front_matter(text)
-  local assets_dir = resolve_assets_dir(source, config)
-  local macro_rel = (config.pandocmd and config.pandocmd["macro-file"]) or "math-macros.tex"
+  local meta, body_start, body_lines, yaml = front_matter(text, reader_options)
+  local assets_dir = resolve_assets_dir(source, meta)
+  local macro_file = map_field(meta.pandocmd, "macro-file")
+  local macro_rel = macro_file and stringify(macro_file) or "math-macros.tex"
   local macros = read_file(join_path(assets_dir, macro_rel)) or read_file(macro_rel) or ""
-  local extra_macros = render_extra_macros(config.math)
-  local specs = block_specs(config)
+  local extra_macros = render_extra_macros(meta.math)
+  local specs = block_specs(meta)
   local normalized = {}
 
   for _, line in ipairs(body_lines) do
@@ -556,7 +512,7 @@ function Reader(input, reader_options)
   local annotated = annotate_source_lines(body_start, normalized)
   local meta_prefix = yaml and ("---\n" .. yaml .. "\n---\n\n") or ""
   local prepared = meta_prefix .. macros .. "\n\n" .. extra_macros .. "\n\n" .. annotated
-  local doc = pandoc.read(prepared, "markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex", reader_options)
+  local doc = pandoc.read(prepared, reader_format, reader_options)
 
   doc.meta["pandocmd-source-file"] = absolute_path(source)
   doc.meta["pandocmd-assets-dir"] = assets_dir

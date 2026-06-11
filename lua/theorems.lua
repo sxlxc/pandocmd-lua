@@ -28,16 +28,17 @@ function M.build_block_specs(meta)
   end
 
   local blocks = meta.blocks
-  if blocks and blocks.t == "MetaMap" then
+  if blocks and pandoc.utils.type(blocks) == "table" then
     for class, block in pairs(blocks) do
       local key = util.title_case(class)
       if not specs[key] then
         table.insert(order, key)
       end
+      local block_meta = pandoc.utils.type(block) == "table" and block or {}
       specs[key] = {
         class = key,
-        title = util.meta_to_text(block.title) or util.title_case(class),
-        numbered = not util.meta_bool_false(block.counter),
+        title = util.meta_to_text(block_meta.title) or util.title_case(class),
+        numbered = not util.meta_bool_false(block_meta.counter),
       }
     end
   end
@@ -78,45 +79,33 @@ end
 
 function M.preprocess_blocks(blocks, specs, order)
   local index = 1
-  local function walk(block_list)
-    for _, block in ipairs(block_list) do
-      if block.t == "Div" then
-        walk(block.content)
-        local spec = matched_block_spec(block.attr, specs, order)
-        if spec then
-          normalize_theorem_class(block, specs, order, spec)
-          block.attr.attributes.type = spec.title
-          if spec.numbered then
-            block.attr.attributes.index = tostring(index)
-            index = index + 1
-          end
+  return util.walk_blocks(blocks, function(block)
+    if block.t == "Div" then
+      local spec = matched_block_spec(block.attr, specs, order)
+      if spec then
+        normalize_theorem_class(block, specs, order, spec)
+        block.attr.attributes.type = spec.title
+        if spec.numbered then
+          block.attr.attributes.index = tostring(index)
+          index = index + 1
         end
-      elseif block.content and block.t ~= "Header" then
-        walk(block.content)
       end
     end
-  end
-  walk(blocks)
-  return blocks
+    return block
+  end)
 end
 
 function M.links(blocks)
   local links = {}
-  local function walk(block_list)
-    for _, block in ipairs(block_list) do
-      if block.t == "Div" then
-        local typ = block.attr.attributes.type
-        local index = block.attr.attributes.index
-        if typ and index and block.attr.identifier ~= "" then
-          links[block.attr.identifier] = typ .. " " .. index
-        end
-        walk(block.content)
-      elseif block.content and block.t ~= "Header" then
-        walk(block.content)
+  util.walk_blocks(blocks, function(block)
+    if block.t == "Div" then
+      local typ = block.attr.attributes.type
+      local index = block.attr.attributes.index
+      if typ and index and block.attr.identifier ~= "" then
+        links[block.attr.identifier] = typ .. " " .. index
       end
     end
-  end
-  walk(blocks)
+  end)
   return links
 end
 
@@ -135,7 +124,7 @@ local function theorem_name_inlines(raw)
 end
 
 function M.render_blocks(blocks)
-  for _, block in ipairs(blocks) do
+  return util.walk_blocks(blocks, function(block)
     if block.t == "Div" and block.attr.attributes.type then
       util.add_class(block.attr, "theorem-environment")
       local header = pandoc.Span({
@@ -145,11 +134,8 @@ function M.render_blocks(blocks)
       }, util.attr("", { "theorem-header" }, {}))
       block.content:insert(1, pandoc.Plain({ header }))
     end
-    if block.content then
-      M.render_blocks(block.content)
-    end
-  end
-  return blocks
+    return block
+  end)
 end
 
 return M

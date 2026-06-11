@@ -129,21 +129,12 @@ end
 
 function M.preprocess_blocks(blocks)
   equation_counter = 1
-  local function walk(block_list)
-    for _, block in ipairs(block_list) do
-      if block.t == "Para" or block.t == "Plain" then
-        block.content = preprocess_equation_inlines(block.content)
-      elseif block.content then
-        walk(block.content)
-      elseif block.t == "BulletList" or block.t == "OrderedList" then
-        for _, item in ipairs(block.content) do
-          walk(item)
-        end
-      end
+  return util.walk_blocks(blocks, function(block)
+    if block.t == "Para" or block.t == "Plain" then
+      block.content = preprocess_equation_inlines(block.content)
     end
-  end
-  walk(blocks)
-  return blocks
+    return block
+  end)
 end
 
 local function collect_equation_links(inlines, links)
@@ -164,15 +155,11 @@ local function collect_equation_links(inlines, links)
 end
 
 function M.collect_links(blocks, links)
-  for _, block in ipairs(blocks) do
-    if block.content then
-      if block.t == "Para" or block.t == "Plain" or block.t == "Header" then
-        collect_equation_links(block.content, links)
-      else
-        M.collect_links(block.content, links)
-      end
+  util.walk_blocks(blocks, function(block)
+    if block.t == "Para" or block.t == "Plain" or block.t == "Header" then
+      collect_equation_links(block.content, links)
     end
-  end
+  end)
 end
 
 return M

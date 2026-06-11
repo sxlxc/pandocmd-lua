@@ -56,12 +56,42 @@ function M.meta_to_text(value)
 end
 
 function M.meta_bool_false(value)
+  if value == false then
+    return true
+  end
   local text = M.meta_to_text(value)
+  text = text and text:lower() or nil
   return text == "none" or text == "false"
 end
 
 function M.escape_html(s)
   return (s:gsub("&", "&amp;"):gsub('"', "&quot;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
+end
+
+function M.walk_blocks(blocks, visit)
+  for i, block in ipairs(blocks) do
+    if block.t == "BulletList" or block.t == "OrderedList" then
+      for _, item in ipairs(block.content) do
+        M.walk_blocks(item, visit)
+      end
+    elseif block.t == "DefinitionList" then
+      for _, item in ipairs(block.content) do
+        for _, definition in ipairs(item[2]) do
+          M.walk_blocks(definition, visit)
+        end
+      end
+    elseif (block.t == "Div" or block.t == "BlockQuote") and block.content then
+      block.content = M.walk_blocks(block.content, visit)
+    elseif block.content and block.t ~= "Header" and pandoc.utils.type(block.content) == "Blocks" then
+      block.content = M.walk_blocks(block.content, visit)
+    end
+
+    local replacement = visit(block)
+    if replacement ~= nil then
+      blocks[i] = replacement
+    end
+  end
+  return blocks
 end
 
 local inline_writer_options = pandoc.WriterOptions({
