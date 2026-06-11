@@ -122,61 +122,89 @@ local function replace_field(template, name, value)
   end)
 end
 
+local function js_string(value)
+  local replacements = {
+    ["\\"] = "\\\\",
+    ['"'] = '\\"',
+    ["<"] = "\\u003c",
+    [">"] = "\\u003e",
+    ["&"] = "\\u0026",
+    ["\n"] = "\\n",
+    ["\r"] = "\\r",
+    ["\t"] = "\\t",
+  }
+  return '"' .. value:gsub('[\\"<>&\n\r\t]', replacements) .. '"'
+end
+
 local function live_reload_script()
-  local enabled = os.getenv("PANDOCMD_PREVIEW_LIVE_RELOAD")
-  if not enabled or enabled == "" then
+  local endpoint = os.getenv("PANDOCMD_PREVIEW_LIVE_RELOAD_URL")
+  if not endpoint or endpoint == "" then
     return ""
   end
 
-  local token = enabled:gsub("[^%w%-]", "")
-  if token == "" or token == "1" then
-    token = (tostring(os.time()) .. "-" .. tostring({})):gsub("[^%w%-]", "")
-  end
   local script = [==[
-    <script data-pandocmd-live-reload-token="__TOKEN__">
+    <script>
         (function () {
-            var baseline = "__TOKEN__";
-            var delay = 150;
-            var path = window.location.pathname;
-            var signalPath = path.replace(/\.html$/, ".reload");
-
-            function poll() {
-                window.fetch(signalPath, { cache: "no-store" })
-                    .then(function (response) {
-                        if (!response.ok) {
-                            return null;
-                        }
-
-                        return response.text();
-                    })
-                    .then(function (next) {
-                        if (typeof next === "string") {
-                            next = next.trim();
-                        }
-
-                        if (next === null) {
-                            return;
-                        }
-
-                        if (next === baseline) {
-                            return;
-                        }
-
-                        if (next) {
-                            window.location.reload();
-                        }
-                    })
-                    .catch(function () {
-                        return;
-                    });
+            if (!("WebSocket" in window)) {
+                return;
             }
 
-            window.setInterval(poll, delay);
+            var endpoint = __ENDPOINT__;
+            var retryDelay = 1000;
+
+            function socketUrl() {
+                if (/^wss?:\/\//.test(endpoint)) {
+                    return endpoint;
+                }
+
+                return (window.location.protocol === "https:" ? "wss://" : "ws://") +
+                    window.location.host + endpoint;
+            }
+
+            function connect() {
+                var socket;
+
+                try {
+                    socket = new WebSocket(socketUrl());
+                } catch (error) {
+                    retry();
+                    return;
+                }
+
+                socket.addEventListener("open", function () {
+                    socket.send(JSON.stringify({
+                        command: "hello",
+                        protocols: ["http://livereload.com/protocols/official-7"]
+                    }));
+                });
+
+                socket.addEventListener("message", function (event) {
+                    var message;
+
+                    try {
+                        message = JSON.parse(event.data);
+                    } catch (error) {
+                        return;
+                    }
+
+                    if (message.command === "reload") {
+                        window.location.reload();
+                    }
+                });
+
+                socket.addEventListener("close", retry);
+            }
+
+            function retry() {
+                window.setTimeout(connect, retryDelay);
+            }
+
+            connect();
         }());
     </script>
 ]==]
 
-  return script:gsub("__TOKEN__", token)
+  return script:gsub("__ENDPOINT__", js_string(endpoint))
 end
 
 function Writer(doc, opts)

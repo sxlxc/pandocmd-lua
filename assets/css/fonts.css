@@ -1,39 +1,61 @@
-
 /* fonts */
 
 @font-face {
   font-family: "Lato";
-  src: url("/fonts/Lato-Regular.woff2") format("woff2");
+  src:
+    local("Lato Regular"),
+    local("Lato-Regular"),
+    url("/fonts/Lato-Regular.woff2") format("woff2");
   font-weight: normal;
   font-style: normal;
 }
+
 @font-face {
   font-family: "Lato";
-  src: url("/fonts/Lato-Bold.woff2") format("woff2");
+  src:
+    local("Lato Bold"),
+    local("Lato-Bold"),
+    url("/fonts/Lato-Bold.woff2") format("woff2");
   font-weight: bold;
   font-style: normal;
 }
+
 @font-face {
   font-family: "Lato";
-  src: url("/fonts/Lato-Italic.woff2") format("woff2");
+  src:
+    local("Lato Italic"),
+    local("Lato-Italic"),
+    url("/fonts/Lato-Italic.woff2") format("woff2");
   font-weight: normal;
   font-style: italic;
 }
+
 @font-face {
   font-family: "Lato";
-  src: url("/fonts/Lato-BoldItalic.woff2") format("woff2");
+  src:
+    local("Lato Bold Italic"),
+    local("Lato-BoldItalic"),
+    url("/fonts/Lato-BoldItalic.woff2") format("woff2");
   font-weight: bold;
   font-style: italic;
 }
+
 @font-face {
   font-family: "Lete Sans Math";
-  src: url("/fonts/LeteSansMath.woff2") format("woff2");
+  src:
+    local("Lete Sans Math"),
+    local("LeteSansMath"),
+    url("/fonts/LeteSansMath.woff2") format("woff2");
   font-weight: normal;
   font-style: normal;
 }
+
 @font-face {
   font-family: "Lete Sans Math";
-  src: url("/fonts/LeteSansMath-Bold.woff2") format("woff2");
+  src:
+    local("Lete Sans Math Bold"),
+    local("LeteSansMath-Bold"),
+    url("/fonts/LeteSansMath-Bold.woff2") format("woff2");
   font-weight: bold;
   font-style: normal;
 }
@@ -44,6 +66,7 @@
   font-weight: normal;
   font-style: normal;
 }
+
 @font-face {
   font-family: "IosevkaC";
   src: url("/fonts/IosevkaCustom-Bold.woff2") format("woff2");

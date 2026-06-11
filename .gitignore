@@ -2,3 +2,4 @@ test/
 plan.md
 assets/preview/
 .DS_Store
+__pycache__/
