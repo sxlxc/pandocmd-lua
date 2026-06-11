@@ -5,6 +5,11 @@
 --   * inject source-line marker comments
 --   * prepend TeX macros before Pandoc's markdown reader runs
 
+local script_dir = debug.getinfo(1, "S").source:match("^@(.*/)[^/]*$") or ""
+package.path = script_dir .. "?.lua;" .. package.path
+
+local source_line_preprocess = require("source-line-preprocess")
+
 local reader_format = "markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex"
 local stringify = pandoc.utils.stringify
 
@@ -270,180 +275,6 @@ local function normalize_fenced_div(line, specs)
   return indent .. fence .. " {" .. normalized_attrs .. "}" .. suffix
 end
 
-local function leading_indent(line)
-  return line:match("^(%s*)")
-end
-
-local function marker_line(line_no, line)
-  return leading_indent(line) .. "<!-- pandocmd-source-line:" .. tostring(line_no) .. " -->"
-end
-
-local function opens_code_fence(line)
-  local stripped = line:gsub("^%s+", "")
-  local c = stripped:sub(1, 1)
-  if c ~= "`" and c ~= "~" then
-    return nil
-  end
-  local fence = stripped:match("^" .. c:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1") .. "+")
-  if fence and #fence >= 3 then
-    return fence
-  end
-  return nil
-end
-
-local function closes_code_fence(fence, line)
-  local c = fence:sub(1, 1)
-  local stripped = line:gsub("^%s+", "")
-  local closing = stripped:match("^" .. c:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1") .. "+") or ""
-  local rest = stripped:sub(#closing + 1)
-  return #closing >= #fence and rest:match("^%s*$") ~= nil
-end
-
-local function opens_display_math(line)
-  local stripped = line:gsub("^%s+", "")
-  if starts_with(stripped, "$$") then
-    return "$$"
-  elseif starts_with(stripped, "\\[") then
-    return "\\]"
-  end
-  return nil
-end
-
-local function closes_math_fence(fence, line)
-  return trim(line):find(fence, 1, true) ~= nil
-end
-
-local function closes_display_math_on_opening_line(fence, line)
-  local stripped = line:gsub("^%s+", "")
-  if fence == "$$" then
-    local _, count = stripped:gsub("%$%$", "")
-    return count >= 2
-  elseif fence == "\\]" then
-    return stripped:sub(3):find("\\]", 1, true) ~= nil
-  end
-  return false
-end
-
-local function starts_with_space(text)
-  return text:match("^%s") ~= nil
-end
-
-local function is_indented_code_start(line)
-  return starts_with(line, "    ") or starts_with(line, "\t")
-end
-
-local function is_header_start(line)
-  local rest = line:match("^#(.*)$")
-  return rest ~= nil and (rest == "" or starts_with_space(rest))
-end
-
-local function is_list_start(line)
-  if line:match("^[-+*]%s") then
-    return true
-  end
-  return line:match("^%d%d?%d?%d?%d?%d?%d?%d?%d?[.)]%s") ~= nil
-end
-
-local function is_thematic_break(line)
-  local chars = line:gsub("%s+", "")
-  return #chars >= 3 and (chars:match("^%-+$") or chars:match("^%*+$") or chars:match("^_+$"))
-end
-
-local function is_fenced_div_opening(line)
-  local stripped = line:gsub("^%s+", "")
-  local fence, rest = stripped:match("^(:+)(.*)$")
-  if not fence or #fence < 3 then
-    return false
-  end
-  rest = trim(rest)
-  return rest:match("^%{.*%}$") ~= nil or rest:match("^[%w_%-]+$") ~= nil
-end
-
-local function is_fenced_div_closing(line)
-  local stripped = line:gsub("^%s+", "")
-  local fence, rest = stripped:match("^(:+)(.*)$")
-  return fence ~= nil and #fence >= 3 and trim(rest) == ""
-end
-
-local function is_non_paragraph_block_start(line)
-  local stripped = line:gsub("^%s+", "")
-  return is_indented_code_start(line)
-    or is_header_start(stripped)
-    or starts_with(stripped, ">")
-    or is_list_start(stripped)
-    or is_thematic_break(stripped)
-    or starts_with(stripped, "|")
-    or starts_with(stripped, "<")
-    or (starts_with(stripped, "[") and stripped:find("]:", 1, true) ~= nil)
-    or starts_with(stripped, "{#")
-    or starts_with(stripped, "{.")
-end
-
-local function annotate_source_lines(start_line, lines)
-  local out = {}
-  local in_paragraph = false
-  local code_fence = nil
-  local math_fence = nil
-  local math_resumes_paragraph = false
-
-  for i, line in ipairs(lines) do
-    local line_no = start_line + i - 1
-    if code_fence then
-      table.insert(out, line)
-      if closes_code_fence(code_fence, line) then
-        code_fence = nil
-      end
-      in_paragraph = false
-    elseif math_fence then
-      table.insert(out, line)
-      if closes_math_fence(math_fence, line) then
-        in_paragraph = math_resumes_paragraph
-        math_fence = nil
-      end
-    elseif trim(line) == "" then
-      table.insert(out, line)
-      in_paragraph = false
-    elseif is_indented_code_start(line) then
-      table.insert(out, line)
-      in_paragraph = false
-    else
-      local fence = opens_code_fence(line)
-      local math = opens_display_math(line)
-      if fence then
-        table.insert(out, line)
-        code_fence = fence
-        in_paragraph = false
-      elseif math then
-        table.insert(out, marker_line(line_no, line))
-        table.insert(out, line)
-        math_resumes_paragraph = in_paragraph
-        in_paragraph = closes_display_math_on_opening_line(math, line) and math_resumes_paragraph
-        if not closes_display_math_on_opening_line(math, line) then
-          math_fence = math
-        end
-      elseif is_fenced_div_closing(line) then
-        table.insert(out, line)
-        in_paragraph = false
-      elseif in_paragraph then
-        table.insert(out, line)
-      elseif is_fenced_div_opening(line) then
-        table.insert(out, marker_line(line_no, line))
-        table.insert(out, line)
-        in_paragraph = false
-      elseif is_non_paragraph_block_start(line) then
-        table.insert(out, line)
-        in_paragraph = false
-      else
-        table.insert(out, marker_line(line_no, line))
-        table.insert(out, line)
-        in_paragraph = true
-      end
-    end
-  end
-
-  return table.concat(out, "\n")
-end
-
 local function resolve_assets_dir(source_name, meta)
   local cli_assets = os.getenv("PANDOCMD_ASSETS_DIR")
   if cli_assets and cli_assets ~= "" then
@@ -509,7 +340,7 @@ function Reader(input, reader_options)
     table.insert(normalized, normalize_fenced_div(line, specs))
   end
 
-  local annotated = annotate_source_lines(body_start, normalized)
+  local annotated = source_line_preprocess.annotate_source_lines(body_start, normalized)
   local meta_prefix = yaml and ("---\n" .. yaml .. "\n---\n\n") or ""
   local prepared = meta_prefix .. macros .. "\n\n" .. extra_macros .. "\n\n" .. annotated
   local doc = pandoc.read(prepared, reader_format, reader_options)

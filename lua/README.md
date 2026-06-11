@@ -21,8 +21,9 @@ The writer applies the existing default HTML template with Hakyll-style literal
 substitution, avoiding Pandoc template indentation changes for multiline fields.
 
 `filter.lua` is only the Pandoc entrypoint. The individual passes live in
-`equations.lua`, `source-lines.lua`, `theorems.lua`, `sidenotes.lua`,
-`references.lua`, and `page-meta.lua`, with shared helpers in `util.lua`.
+`source-line-preprocess.lua`, `equations.lua`, `source-lines.lua`,
+`theorems.lua`, `sidenotes.lua`, `references.lua`, and `page-meta.lua`, with
+shared helpers in `util.lua`.
 
 Asset resolution uses this order:
 

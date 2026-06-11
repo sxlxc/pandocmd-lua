@@ -24,8 +24,8 @@
     --color-border: #d8d8d8;
     --color-button-bg: #f7f7f7;
     --color-source-line: #8a8a8a;
-    --source-line-width: 2.4rem;
-    --source-line-gap: 0.45rem;
+    --source-line-width: 3rem;
+    --source-line-gap: 0.5rem;
 }
 
 html {
@@ -278,7 +278,7 @@ section.body .abstract-title {
     margin: 1em 0;
 }
 
-.text-space .source-line[data-source-line] > p {
+.text-space .source-line[data-source-line]>p {
     margin: 0;
 }
 
@@ -292,8 +292,8 @@ section.body .abstract-title {
     overflow-y: hidden;
 }
 
-.text-space .source-line > p:empty,
-.text-space .theorem-environment > p:empty {
+.text-space .source-line>p:empty,
+.text-space .theorem-environment>p:empty {
     display: none;
 }
 
@@ -305,12 +305,8 @@ section.body .abstract-title {
     display: block;
     min-width: var(--source-line-width);
     color: var(--color-source-line);
-    font-family: "IosevkaC", monospace;
-    font-size: 0.8rem;
     font-style: normal;
     font-weight: normal;
-    font-variant-ligatures: none;
-    line-height: 1.4rem;
     text-align: right;
     text-decoration: none;
     user-select: none;
@@ -322,7 +318,7 @@ section.body .abstract-title {
     text-decoration: underline;
 }
 
-.text-space .math-container[data-source-line] > .source-line-link {
+.text-space .math-container[data-source-line]>.source-line-link {
     position: static;
     grid-column: 1;
     min-width: 0;
@@ -349,11 +345,11 @@ section.body .abstract-title {
     display: none !important;
 }
 
-.xref-preview > :first-child {
+.xref-preview> :first-child {
     margin-top: 0;
 }
 
-.xref-preview > :last-child {
+.xref-preview> :last-child {
     margin-bottom: 0;
 }
 
@@ -380,8 +376,8 @@ section.body .abstract-title {
     overflow-y: hidden;
 }
 
-.xref-preview .source-line > p:empty,
-.xref-preview .theorem-environment > p:empty {
+.xref-preview .source-line>p:empty,
+.xref-preview .theorem-environment>p:empty {
     display: none;
 }
 
@@ -473,7 +469,7 @@ td {
     padding: 8px 10px;
 }
 
-tbody > tr:nth-of-type(even) {
+tbody>tr:nth-of-type(even) {
     background-color: rgb(237 238 242);
 }
 
@@ -582,7 +578,7 @@ code {
         line-height: 1.2;
     }
 
-    #contents-big li + li {
+    #contents-big li+li {
         margin-top: 0.5em;
     }
 
@@ -604,8 +600,8 @@ code {
         max-width: none;
         max-height: calc(100vh - var(--toc-sticky-top) - 1rem);
         margin-left: auto;
-        margin-right: 0;
-        padding-left: 0;
+        margin-right: auto;
+        padding: 0;
         overflow-y: auto;
         font-size: 80%;
         text-align: left;
@@ -650,14 +646,13 @@ code {
 }
 
 @media (min-width: 1200px) {
+
     .page-layout,
     body.hide-left-margin .page-layout,
     body.click-open-notes .page-layout,
     body.hide-left-margin.click-open-notes .page-layout {
         grid-template-columns:
-            minmax(0, 1fr)
-            minmax(0, var(--content-column-width))
-            minmax(0, 1fr);
+            minmax(0, 1fr) minmax(0, var(--content-column-width)) minmax(0, 1fr);
         justify-content: stretch;
     }
 
@@ -687,9 +682,9 @@ body.click-open-notes .page-layout .sidenote-number:after {
     text-decoration: none;
 }
 
-body.click-open-notes .page-layout .margin-toggle:checked + .sidenote,
-body.click-open-notes .page-layout .margin-toggle:checked + .marginnote,
-body.click-open-notes .page-layout .margin-toggle:checked + .marginnote-left {
+body.click-open-notes .page-layout .margin-toggle:checked+.sidenote,
+body.click-open-notes .page-layout .margin-toggle:checked+.marginnote,
+body.click-open-notes .page-layout .margin-toggle:checked+.marginnote-left {
     display: block;
     float: left;
     left: 1rem;
@@ -705,6 +700,7 @@ body.click-open-notes .page-layout label.margin-toggle {
 }
 
 @media print {
+
     .no-print,
     .no-print * {
         display: none !important;
