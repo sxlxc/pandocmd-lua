@@ -8,6 +8,7 @@
     --layout-max-width: 1350px;
     --mobile-max-width: 876px;
     --content-max-width: 800px;
+    --content-max-width-no-notes: calc(var(--content-max-width) * 1.3);
     --content-column-width: min(var(--content-max-width), 50vw);
     --toc-width: 33%;
     --toc-width-no-sidenotes: 18rem;
@@ -26,10 +27,12 @@
     --color-source-line: #8a8a8a;
     --source-line-width: 3rem;
     --source-line-gap: 0.5rem;
+    --font-main: "Lato", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mathml: "Lete Sans Math";
 }
 
 html {
-    font-size: 115%;
+    font-size: 13pt;
     scroll-behavior: smooth;
     scroll-padding-top: calc(var(--controls-top) + var(--controls-height) + 1rem);
     scrollbar-gutter: stable;
@@ -37,19 +40,17 @@ html {
 
 body {
     margin: 0;
-    font-family:
-        "Lato",
-        -apple-system,
-        BlinkMacSystemFont,
-        "PingFang SC",
-        "Microsoft YaHei",
-        sans-serif;
+    font-family: var(--font-main);
     font-optical-sizing: auto;
     font-size: 1rem;
     line-height: 1.4;
     color: var(--color-text);
     background-color: var(--color-bg);
     text-rendering: optimizeLegibility;
+}
+
+body[data-font-profile="serif-katex"] {
+    --font-main: "Merriweather", Georgia, "Times New Roman", "Songti SC", "STSong", serif;
 }
 
 a {
@@ -82,7 +83,27 @@ summary:hover {
 .htmlmathparagraph,
 math,
 mtext {
-    font-family: Lete Sans Math;
+    font-family: var(--font-mathml);
+}
+
+.katex-math-render {
+    display: none;
+}
+
+body[data-font-profile="serif-katex"].has-katex math[data-pandocmd-katex-source] {
+    display: none;
+}
+
+body[data-font-profile="serif-katex"].has-katex .katex-math-render.inline {
+    display: inline;
+}
+
+body[data-font-profile="serif-katex"].has-katex .katex-math-render.display {
+    display: block;
+}
+
+.math-container .katex-display {
+    margin: 0;
 }
 
 #math-container,
@@ -338,11 +359,27 @@ section.body .abstract-title {
     color: var(--color-text);
     background: var(--color-bg);
     box-shadow: 0 0.35rem 1.4rem rgb(0 0 0 / 18%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
     text-align: left;
+    transition:
+        opacity 80ms ease,
+        visibility 0s linear 80ms;
+}
+
+.xref-preview:not([hidden]) {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 300ms, 300ms;
 }
 
 .xref-preview[hidden] {
-    display: none !important;
+    display: block !important;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .xref-preview> :first-child {
@@ -409,26 +446,41 @@ section.body .abstract-title {
     align-items: center;
 }
 
-.nav-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 2.5rem;
+.nav-button,
+.nav-select {
     border: none;
     color: var(--color-text);
     background: var(--color-button-bg);
     font-family: inherit;
     font-size: 0.85rem;
+}
+
+.nav-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.5rem;
+    min-height: var(--controls-height);
+    padding: 0 0.5rem;
     text-decoration: none;
     cursor: pointer;
     user-select: none;
+}
+
+.nav-select {
+    height: var(--controls-height);
+    max-width: 11rem;
+    padding: 0 0.35rem;
+    border-radius: 0;
+    cursor: pointer;
 }
 
 .nav-button:visited {
     color: var(--color-text);
 }
 
-.nav-button:hover {
+.nav-button:hover,
+.nav-select:hover {
     border-color: var(--color-link);
     color: var(--color-link);
     text-decoration: none;
@@ -440,7 +492,8 @@ section.body .abstract-title {
     background: #f1f6ff;
 }
 
-.nav-button:focus-visible {
+.nav-button:focus-visible,
+.nav-select:focus-visible {
     outline: 2px solid var(--color-link);
     outline-offset: 2px;
 }
@@ -657,12 +710,18 @@ code {
     }
 
     .text-space,
-    body.hide-left-margin .text-space,
-    body.click-open-notes .text-space,
-    body.hide-left-margin.click-open-notes .text-space {
+    body.hide-left-margin .text-space {
         grid-column: 2;
         width: auto;
         max-width: var(--content-max-width);
+    }
+
+    body.click-open-notes .text-space,
+    body.hide-left-margin.click-open-notes .text-space {
+        grid-column: 2;
+        justify-self: start;
+        width: min(130%, var(--content-max-width-no-notes));
+        max-width: var(--content-max-width-no-notes);
     }
 }
 

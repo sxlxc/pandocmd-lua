@@ -8,12 +8,18 @@
     <meta name="googlebot" content="noindex" />
     <title>$title$</title>
     $stylesheets$
+    <link rel="stylesheet" href="/katex/katex.min.css" />
+    <script defer src="/katex/katex.min.js"></script>
 </head>
 
 <body>
     <nav class="top-controls no-print" aria-label="Page controls">
         <button class="nav-button" type="button" id="toggle-left-margin" aria-controls="contents-big" aria-pressed="true">Contents</button>
         <button class="nav-button" type="button" id="toggle-sidenotes" aria-pressed="true">Notes</button>
+        <select class="nav-select" id="font-profile-select" aria-label="Font profile">
+            <option value="sans-mathml">Sans+MathML</option>
+            <option value="serif-katex">Serif+KaTeX</option>
+        </select>
     </nav>
     <script>
         (function () {
@@ -22,7 +28,12 @@
                 ["toggle-sidenotes", "click-open-notes"]
             ];
             var storageKey = "pandocmd:control-state:" + window.location.pathname;
+            var profileStorageKey = "pandocmd:font-profile";
+            var profileSelect = document.getElementById("font-profile-select");
             var activeClasses = readControlState();
+            var activeProfile = readFontProfile();
+
+            applyFontProfile(activeProfile);
 
             toggles.forEach(function (toggle) {
                 var button = document.getElementById(toggle[0]);
@@ -46,6 +57,14 @@
 
                 sync();
             });
+
+            if (profileSelect) {
+                profileSelect.addEventListener("change", function () {
+                    activeProfile = normalizeFontProfile(profileSelect.value);
+                    applyFontProfile(activeProfile);
+                    writeFontProfile(activeProfile);
+                });
+            }
 
             function readControlState() {
                 var state = Object.create(null);
@@ -78,6 +97,35 @@
                     }
                 } catch (error) {
                     return;
+                }
+            }
+
+            function normalizeFontProfile(value) {
+                return value === "serif-katex" ? "serif-katex" : "sans-mathml";
+            }
+
+            function readFontProfile() {
+                try {
+                    return normalizeFontProfile(window.localStorage.getItem(profileStorageKey));
+                } catch (error) {
+                    return "sans-mathml";
+                }
+            }
+
+            function writeFontProfile(profile) {
+                try {
+                    window.localStorage.setItem(profileStorageKey, normalizeFontProfile(profile));
+                } catch (error) {
+                    return;
+                }
+            }
+
+            function applyFontProfile(profile) {
+                profile = normalizeFontProfile(profile);
+                document.body.setAttribute("data-font-profile", profile);
+
+                if (profileSelect) {
+                    profileSelect.value = profile;
                 }
             }
         }());
@@ -114,6 +162,55 @@
         </div>
     </div>
     <script>
+        (function () {
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", renderKatexMath);
+            } else {
+                renderKatexMath();
+            }
+
+            function renderKatexMath() {
+                var mathNodes;
+                var rendered = false;
+
+                if (!window.katex) {
+                    return;
+                }
+
+                mathNodes = Array.prototype.slice.call(document.querySelectorAll("math"));
+                mathNodes.forEach(function (mathNode) {
+                    var annotation = mathNode.querySelector('annotation[encoding="application/x-tex"]');
+                    var tex = annotation && annotation.textContent;
+                    var displayMode = mathNode.getAttribute("display") === "block";
+                    var target;
+
+                    if (!tex || mathNode.hasAttribute("data-pandocmd-katex-source")) {
+                        return;
+                    }
+
+                    target = document.createElement("span");
+                    target.className = "katex-math-render " + (displayMode ? "display" : "inline");
+
+                    try {
+                        window.katex.render(tex, target, {
+                            displayMode: displayMode,
+                            throwOnError: false
+                        });
+                    } catch (error) {
+                        return;
+                    }
+
+                    mathNode.setAttribute("data-pandocmd-katex-source", "true");
+                    mathNode.insertAdjacentElement("afterend", target);
+                    rendered = true;
+                });
+
+                if (rendered) {
+                    document.body.classList.add("has-katex");
+                }
+            }
+        }());
+
         (function () {
             var body = document.querySelector(".text-space section.body");
 
