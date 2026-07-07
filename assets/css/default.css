@@ -24,7 +24,7 @@
     --toc-sticky-top: calc(var(--page-top-padding) + var(--toc-top-gap));
     --color-border: #d8d8d8;
     --color-button-bg: #f7f7f7;
-    --color-source-line: #8a8a8a;
+    --color-source-line: #aaaaaa;
     --source-line-width: 3rem;
     --source-line-gap: 0.5rem;
     --font-main: "Lato", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
