@@ -56,8 +56,17 @@ local function toc_entries(blocks)
   return entries
 end
 
-local function generate_toc(blocks)
-  local entries = toc_entries(blocks)
+local function generate_toc(doc)
+  local entries = toc_entries(doc.blocks)
+  if doc.meta.bibliography ~= nil then
+    -- citeproc runs after the TOC is generated; it appends a references
+    -- section headed by an unnumbered "References" header with this id.
+    entries[#entries + 1] = {
+      level = 1,
+      identifier = "bibliography",
+      content = { pandoc.Str("References") },
+    }
+  end
   if #entries == 0 then
     return ""
   end
@@ -68,7 +77,14 @@ local function generate_toc(blocks)
 
   local function link(entry)
     local number = entry.number and ('<span class="toc-section-number">' .. entry.number .. "</span> ") or ""
-    return '<a href="#' .. util.escape_html(entry.identifier) .. '">' .. number .. util.inline_html(entry.content) .. "</a>"
+    -- Nested anchors are invalid HTML, so autoref/citation links inside
+    -- headers are reduced to their text, matching pandoc's own TOC.
+    local content = pandoc.Inlines(entry.content):walk({
+      Link = function(l)
+        return l.content
+      end,
+    })
+    return '<a href="#' .. util.escape_html(entry.identifier) .. '">' .. number .. util.inline_html(content) .. "</a>"
   end
 
   local function close_h1()
@@ -108,12 +124,9 @@ local function generate_toc(blocks)
   return table.concat(out, "\n")
 end
 
-function M.apply(doc, options)
-  options = options or {}
+function M.apply(doc)
   doc.meta.stylesheets = pandoc.MetaBlocks({ pandoc.RawBlock("html", stylesheet_tags(doc.meta)) })
-  if options.custom_section_numbers then
-    doc.meta.toc = pandoc.MetaBlocks({ pandoc.RawBlock("html", generate_toc(doc.blocks)) })
-  end
+  doc.meta.toc = pandoc.MetaBlocks({ pandoc.RawBlock("html", generate_toc(doc)) })
   M.add_citeproc_meta(doc)
 end
 

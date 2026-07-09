@@ -3,40 +3,15 @@
 -- Pandoc's template engine reindents multiline variables. Hakyll's
 -- loadAndApplyTemplate substitutes the already-rendered HTML fragment
 -- literally, so this writer keeps the final page closer to the current output.
+--
+-- The table of contents is generated ahead of time by page-meta.lua and
+-- arrives in doc.meta.toc, so the document body is only rendered once here.
 
+local script_dir = debug.getinfo(1, "S").source:match("^@(.*/)[^/]*$") or ""
+package.path = script_dir .. "?.lua;" .. package.path
+
+local util = require("util")
 local stringify = pandoc.utils.stringify
-
-local inline_writer_options = pandoc.WriterOptions({
-  html_math_method = "mathml",
-  wrap_text = "none",
-})
-
-local function read_file(path)
-  local fh = io.open(path, "r")
-  if not fh then
-    return nil
-  end
-  local body = fh:read("*a")
-  fh:close()
-  return body
-end
-
-local function starts_with(s, prefix)
-  return s:sub(1, #prefix) == prefix
-end
-
-local function join_path(a, b)
-  if b == nil or b == "" then
-    return a
-  end
-  if starts_with(b, "/") or b:match("^%a:[/\\]") then
-    return b
-  end
-  if a == nil or a == "" or a == "." then
-    return b
-  end
-  return a:gsub("[/\\]$", "") .. "/" .. b
-end
 
 local function raw_meta_blocks(value)
   if value == nil then
@@ -73,19 +48,7 @@ local function meta_inlines(value)
 end
 
 local function meta_inline_html(value)
-  local html = pandoc.write(pandoc.Pandoc({ pandoc.Plain(meta_inlines(value)) }), "html5", inline_writer_options)
-  return html:gsub("^<p>", ""):gsub("</p>%s*$", "")
-end
-
-local function generated_toc(doc, number_sections)
-  local toc_opts = pandoc.WriterOptions({
-    html_math_method = "mathml",
-    number_sections = number_sections,
-    table_of_contents = true,
-    template = "$toc$",
-    toc_depth = 2,
-  })
-  return pandoc.write(doc, "html5", toc_opts)
+  return util.inline_html(meta_inlines(value))
 end
 
 local function template_path(meta)
@@ -93,12 +56,12 @@ local function template_path(meta)
   if from_env and from_env ~= "" then
     return from_env
   end
-  local pandocmd = pandoc.utils.type(meta.pandocmd) == "table" and meta.pandocmd or {}
-  if pandocmd.template then
-    return stringify(pandocmd.template)
+  local template = util.map_field(meta.pandocmd, "template")
+  if template then
+    return stringify(template)
   end
   local assets = stringify(meta["pandocmd-assets-dir"] or "assets")
-  return join_path(assets, "templates/default.html")
+  return util.join_path(assets, "templates/default.html")
 end
 
 local function apply_conditional(template, name, enabled)
@@ -109,10 +72,6 @@ local function apply_conditional(template, name, enabled)
     end
     return ""
   end)
-end
-
-local function apply_title_conditional(template, has_title)
-  return apply_conditional(template, "title", has_title)
 end
 
 local function replace_field(template, name, value)
@@ -188,7 +147,11 @@ local function live_reload_script()
                     }
 
                     if (message.command === "reload") {
-                        window.location.reload();
+                        if (window.__pandocmd && typeof window.__pandocmd.softReload === "function") {
+                            window.__pandocmd.softReload();
+                        } else {
+                            window.location.reload();
+                        }
                     }
                 });
 
@@ -215,15 +178,13 @@ function Writer(doc, opts)
   })
   local body = pandoc.write(doc, "html5", html_opts)
   local title = meta_inline_html(doc.meta.title)
-  local has_title = title ~= ""
   local abstract = raw_meta_blocks(doc.meta.abstract)
-  local has_abstract = abstract ~= ""
   local abstract_title = meta_inline_html(doc.meta["abstract-title"] or pandoc.List({ pandoc.Str("Abstract") }))
-  local template = read_file(template_path(doc.meta))
+  local template = util.read_file(template_path(doc.meta))
     or error("could not read pandocmd template")
 
-  template = apply_title_conditional(template, has_title)
-  template = apply_conditional(template, "abstract", has_abstract)
+  template = apply_conditional(template, "title", title ~= "")
+  template = apply_conditional(template, "abstract", abstract ~= "")
   local stylesheets = raw_meta_blocks(doc.meta.stylesheets)
   if stylesheets ~= "" then
     stylesheets = stylesheets .. "\n"
@@ -232,11 +193,7 @@ function Writer(doc, opts)
   template = replace_field(template, "abstract-title", abstract_title)
   template = replace_field(template, "abstract", abstract)
   template = replace_field(template, "stylesheets", stylesheets)
-  template = replace_field(
-    template,
-    "toc",
-    custom_section_numbers and raw_meta_blocks(doc.meta.toc) or generated_toc(doc, true)
-  )
+  template = replace_field(template, "toc", raw_meta_blocks(doc.meta.toc))
   template = replace_field(template, "live-reload", live_reload_script())
   template = replace_field(template, "body", body)
 

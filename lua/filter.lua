@@ -74,30 +74,28 @@ end
 
 function Pandoc(doc)
   local source_file = util.stringify(doc.meta["pandocmd-source-file"] or "")
-  local specs, order = theorems.build_block_specs(doc.meta)
+  local specs = theorems.build_block_specs(doc.meta)
   local custom_section_numbers = references.has_appendix_headers(doc.blocks)
   doc.meta["pandocmd-custom-section-numbers"] = custom_section_numbers
 
-  doc.blocks = equations.preprocess_blocks(doc.blocks)
-  local equation_links = {}
-  equations.collect_links(doc.blocks, equation_links)
-  doc.blocks = references.autoref_blocks(doc.blocks, (function()
-    local links = {}
-    for k, v in pairs(equation_links) do
-      links[k] = "Eq. " .. v
-    end
-    return links
-  end)())
-
+  local equation_links, theorem_links
+  doc.blocks, equation_links = equations.preprocess_blocks(doc.blocks)
   doc.blocks = source_lines.annotate_blocks(source_file, doc.blocks)
-  doc.blocks = theorems.preprocess_blocks(doc.blocks, specs, order)
+  doc.blocks, theorem_links = theorems.preprocess_blocks(doc.blocks, specs)
 
-  local links = theorems.links(doc.blocks)
+  local links = {}
+  for k, v in pairs(equation_links) do
+    links[k] = "Eq. " .. v
+  end
+  for k, v in pairs(theorem_links) do
+    links[k] = v
+  end
   for k, v in pairs(references.section_numbers(doc.blocks)) do
     links[k] = v
   end
-  page_meta.apply(doc, { custom_section_numbers = custom_section_numbers })
+
   doc.blocks = references.autoref_blocks(doc.blocks, links)
+  page_meta.apply(doc)
   if custom_section_numbers then
     doc.blocks = references.render_header_numbers(doc.blocks)
   end

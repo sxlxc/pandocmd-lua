@@ -16,6 +16,44 @@ function M.trim(s)
   return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+function M.read_file(path)
+  local fh = io.open(path, "r")
+  if not fh then
+    return nil
+  end
+  local body = fh:read("*a")
+  fh:close()
+  return body
+end
+
+function M.dirname(path)
+  local dir = path:match("^(.*)[/\\][^/\\]*$")
+  if dir == nil or dir == "" then
+    return "."
+  end
+  return dir
+end
+
+function M.join_path(a, b)
+  if b == nil or b == "" then
+    return a
+  end
+  if b:match("^/") or b:match("^%a:[/\\]") then
+    return b
+  end
+  if a == nil or a == "" or a == "." then
+    return b
+  end
+  return a:gsub("[/\\]$", "") .. "/" .. b
+end
+
+function M.map_field(value, key)
+  if value and pandoc.utils.type(value) == "table" then
+    return value[key]
+  end
+  return nil
+end
+
 function M.has_class(attr, class)
   for _, c in ipairs(attr.classes) do
     if c == class then
@@ -70,19 +108,18 @@ end
 
 function M.walk_blocks(blocks, visit)
   for i, block in ipairs(blocks) do
-    if block.t == "BulletList" or block.t == "OrderedList" then
+    local t = block.t
+    if t == "BulletList" or t == "OrderedList" then
       for _, item in ipairs(block.content) do
         M.walk_blocks(item, visit)
       end
-    elseif block.t == "DefinitionList" then
+    elseif t == "DefinitionList" then
       for _, item in ipairs(block.content) do
         for _, definition in ipairs(item[2]) do
           M.walk_blocks(definition, visit)
         end
       end
-    elseif (block.t == "Div" or block.t == "BlockQuote") and block.content then
-      block.content = M.walk_blocks(block.content, visit)
-    elseif block.content and block.t ~= "Header" and pandoc.utils.type(block.content) == "Blocks" then
+    elseif t ~= "Header" and block.content and pandoc.utils.type(block.content) == "Blocks" then
       block.content = M.walk_blocks(block.content, visit)
     end
 

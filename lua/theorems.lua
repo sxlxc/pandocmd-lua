@@ -20,93 +20,69 @@ local default_block_specs = {
 
 function M.build_block_specs(meta)
   local specs = {}
-  local order = {}
   for _, spec in ipairs(default_block_specs) do
-    local key = util.title_case(spec.class)
-    specs[key] = { class = key, title = spec.title, numbered = spec.numbered }
-    table.insert(order, key)
+    specs[spec.class] = { class = spec.class, title = spec.title, numbered = spec.numbered }
   end
 
   local blocks = meta.blocks
   if blocks and pandoc.utils.type(blocks) == "table" then
     for class, block in pairs(blocks) do
       local key = util.title_case(class)
-      if not specs[key] then
-        table.insert(order, key)
-      end
       local block_meta = pandoc.utils.type(block) == "table" and block or {}
       specs[key] = {
         class = key,
-        title = util.meta_to_text(block_meta.title) or util.title_case(class),
+        title = util.meta_to_text(block_meta.title) or key,
         numbered = not util.meta_bool_false(block_meta.counter),
       }
     end
   end
 
-  return specs, order
+  return specs
 end
 
-local function matched_block_spec(attr, specs, order)
+local function matched_block_spec(attr, specs)
   for _, cls in ipairs(attr.classes) do
-    local normalized = util.title_case(cls)
-    for _, key in ipairs(order) do
-      if key == normalized then
-        return specs[key]
-      end
+    local spec = specs[util.title_case(cls)]
+    if spec then
+      return spec
     end
   end
   return nil
 end
 
-local function normalize_theorem_class(el, specs, order, spec)
+local function normalize_theorem_class(el, specs, spec)
   local classes = pandoc.List({ spec.class })
   for _, cls in ipairs(el.attr.classes) do
-    local normalized = util.title_case(cls)
-    local registered = false
-    for _, key in ipairs(order) do
-      if key == normalized then
-        registered = true
-        break
-      end
-    end
-    if not registered then
+    if not specs[util.title_case(cls)] then
       classes:insert(cls)
     end
   end
   el.attr.classes = classes
-  return el
 end
 
-function M.preprocess_blocks(blocks, specs, order)
+-- Tags matching divs with type/index attributes; returns the blocks plus a map
+-- from identifier to reference label, e.g. links["thm-x"] = "Theorem 1".
+function M.preprocess_blocks(blocks, specs)
   local index = 1
-  return util.walk_blocks(blocks, function(block)
+  local links = {}
+  blocks = util.walk_blocks(blocks, function(block)
     if block.t == "Div" then
-      local spec = matched_block_spec(block.attr, specs, order)
+      local spec = matched_block_spec(block.attr, specs)
       if spec then
-        normalize_theorem_class(block, specs, order, spec)
+        normalize_theorem_class(block, specs, spec)
         block.attr.attributes.type = spec.title
         if spec.numbered then
           block.attr.attributes.index = tostring(index)
+          if block.attr.identifier ~= "" then
+            links[block.attr.identifier] = spec.title .. " " .. index
+          end
           index = index + 1
         end
       end
     end
     return block
   end)
-end
-
-function M.links(blocks)
-  local links = {}
-  util.walk_blocks(blocks, function(block)
-    if block.t == "Div" then
-      local typ = block.attr.attributes.type
-      local index = block.attr.attributes.index
-      if typ and index and block.attr.identifier ~= "" then
-        links[block.attr.identifier] = typ .. " " .. index
-      end
-    end
-  end)
-  return links
+  return blocks, links
 end
 
 local function theorem_name_inlines(raw)
@@ -125,14 +101,19 @@ end
 
 function M.render_blocks(blocks)
   return util.walk_blocks(blocks, function(block)
-    if block.t == "Div" and block.attr.attributes.type then
+    local attributes = block.t == "Div" and block.attr.attributes
+    if attributes and attributes.type then
       util.add_class(block.attr, "theorem-environment")
-      local header = pandoc.Span({
-        pandoc.Span(util.inline_text(block.attr.attributes.type), util.attr("", { "type" }, {})),
-        block.attr.attributes.index and pandoc.Span(util.inline_text(block.attr.attributes.index), util.attr("", { "index" }, {})) or pandoc.Str(""),
-        block.attr.attributes.title and pandoc.Span(theorem_name_inlines(block.attr.attributes.title), util.attr("", { "name" }, {})) or pandoc.Str(""),
-      }, util.attr("", { "theorem-header" }, {}))
-      block.content:insert(1, pandoc.Plain({ header }))
+      local parts = pandoc.List({
+        pandoc.Span(util.inline_text(attributes.type), util.attr("", { "type" })),
+      })
+      if attributes.index then
+        parts:insert(pandoc.Span(util.inline_text(attributes.index), util.attr("", { "index" })))
+      end
+      if attributes.title then
+        parts:insert(pandoc.Span(theorem_name_inlines(attributes.title), util.attr("", { "name" })))
+      end
+      block.content:insert(1, pandoc.Plain({ pandoc.Span(parts, util.attr("", { "theorem-header" })) }))
     end
     return block
   end)

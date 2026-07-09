@@ -8,72 +8,12 @@
 local script_dir = debug.getinfo(1, "S").source:match("^@(.*/)[^/]*$") or ""
 package.path = script_dir .. "?.lua;" .. package.path
 
+local util = require("util")
+local theorems = require("theorems")
 local source_line_preprocess = require("source-line-preprocess")
 
 local reader_format = "markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex"
 local stringify = pandoc.utils.stringify
-
-local default_block_specs = {
-  Theorem = { title = "Theorem", numbered = true },
-  Conjecture = { title = "Conjecture", numbered = true },
-  Definition = { title = "Definition", numbered = true },
-  Example = { title = "Example", numbered = true },
-  Lemma = { title = "Lemma", numbered = true },
-  Problem = { title = "Problem", numbered = true },
-  Proposition = { title = "Proposition", numbered = true },
-  Corollary = { title = "Corollary", numbered = true },
-  Observation = { title = "Observation", numbered = true },
-  Figure = { title = "Figure", numbered = true },
-  Table = { title = "Table", numbered = true },
-  Proof = { title = "Proof", numbered = false },
-  Remark = { title = "Remark", numbered = false },
-}
-
-local function trim(s)
-  return (s:gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
-local function starts_with(s, prefix)
-  return s:sub(1, #prefix) == prefix
-end
-
-local function map_field(value, key)
-  if value and pandoc.utils.type(value) == "table" then
-    return value[key]
-  end
-  return nil
-end
-
-local function dirname(path)
-  local dir = path:match("^(.*)[/\\][^/\\]*$")
-  if dir == nil or dir == "" then
-    return "."
-  end
-  return dir
-end
-
-local function join_path(a, b)
-  if b == nil or b == "" then
-    return a
-  end
-  if b:match("^/") or b:match("^%a:[/\\]") then
-    return b
-  end
-  if a == nil or a == "" or a == "." then
-    return b
-  end
-  return a:gsub("[/\\]$", "") .. "/" .. b
-end
-
-local function read_file(path)
-  local fh = io.open(path, "r")
-  if not fh then
-    return nil
-  end
-  local body = fh:read("*a")
-  fh:close()
-  return body
-end
 
 local function split_lines(text)
   local lines = {}
@@ -92,13 +32,13 @@ end
 
 local function yaml_front_matter(text)
   local lines = split_lines(text)
-  if not lines[1] or trim(lines[1]) ~= "---" then
+  if not lines[1] or util.trim(lines[1]) ~= "---" then
     return nil, 1, lines
   end
 
   local yaml_lines = {}
   for i = 2, #lines do
-    local stripped = trim(lines[i])
+    local stripped = util.trim(lines[i])
     if stripped == "---" or stripped == "..." then
       local body_start = i + 1
       local body_lines = {}
@@ -120,34 +60,6 @@ local function front_matter(text, reader_options)
   end
   local doc = pandoc.read("---\n" .. yaml .. "\n---\n", reader_format, reader_options)
   return doc.meta, body_start, body_lines, yaml
-end
-
-local function title_case(s)
-  return (s:gsub("(%a)([%w_%-]*)", function(first, rest)
-    return first:upper() .. rest:lower()
-  end))
-end
-
-local function block_specs(meta)
-  local specs = {}
-  for class, spec in pairs(default_block_specs) do
-    specs[class] = { title = spec.title, numbered = spec.numbered }
-  end
-  local blocks = meta.blocks
-  if pandoc.utils.type(blocks) ~= "table" then
-    return specs
-  end
-  for class, spec in pairs(blocks) do
-    local key = title_case(class)
-    local counter = map_field(spec, "counter")
-    local title = map_field(spec, "title")
-    counter = counter and stringify(counter) or nil
-    specs[key] = {
-      title = title and stringify(title) or title_case(class),
-      numbered = not (counter == "none" or counter == "false"),
-    }
-  end
-  return specs
 end
 
 local function attr_tokens(attrs)
@@ -199,7 +111,7 @@ end
 local function is_theorem_attr(tokens, specs)
   for _, token in ipairs(tokens) do
     local cls = attr_token_class(token)
-    if cls and specs[title_case(cls)] then
+    if cls and specs[util.title_case(cls)] then
       return true
     end
   end
@@ -232,14 +144,10 @@ local function normalize_fenced_div_attrs(attrs)
   end
 
   local normalized = {}
-  for _, token in ipairs(ids) do
-    table.insert(normalized, token)
-  end
-  for _, token in ipairs(classes) do
-    table.insert(normalized, token)
-  end
-  for _, token in ipairs(others) do
-    table.insert(normalized, token)
+  for _, group in ipairs({ ids, classes, others }) do
+    for _, token in ipairs(group) do
+      table.insert(normalized, token)
+    end
   end
 
   return table.concat(normalized, " "), tokens
@@ -255,13 +163,13 @@ local function normalize_fenced_div(line, specs)
   if not fence or #fence < 3 then
     return line
   end
-  local attr_body, after_attr = trim(after_fence):match("^%{(.-)%}(.*)$")
+  local attr_body, after_attr = util.trim(after_fence):match("^%{(.-)%}(.*)$")
   if not attr_body then
     return line
   end
   local normalized_attrs, tokens = normalize_fenced_div_attrs(attr_body)
   local suffix = after_attr
-  local title = trim(after_attr)
+  local title = util.trim(after_attr)
   if is_theorem_attr(tokens, specs) and title ~= "" then
     suffix = ""
     if not has_attr_key(tokens, "title") then
@@ -284,9 +192,9 @@ local function resolve_assets_dir(source_name, meta)
   if env_assets and env_assets ~= "" then
     return env_assets
   end
-  local assets_dir = map_field(meta.pandocmd, "assets-dir")
+  local assets_dir = util.map_field(meta.pandocmd, "assets-dir")
   if assets_dir then
-    return join_path(dirname(source_name), stringify(assets_dir))
+    return util.join_path(util.dirname(source_name), stringify(assets_dir))
   end
   return "assets"
 end
@@ -298,7 +206,7 @@ local function render_extra_macros(math_meta)
   end
   for name, body in pairs(math_meta or {}) do
     local macro_name = name
-    if not starts_with(macro_name, "\\") then
+    if not util.starts_with(macro_name, "\\") then
       macro_name = "\\" .. macro_name
     end
     table.insert(lines, "\\providecommand{" .. macro_name .. "}{}")
@@ -329,11 +237,11 @@ function Reader(input, reader_options)
   local text = tostring(input)
   local meta, body_start, body_lines, yaml = front_matter(text, reader_options)
   local assets_dir = resolve_assets_dir(source, meta)
-  local macro_file = map_field(meta.pandocmd, "macro-file")
+  local macro_file = util.map_field(meta.pandocmd, "macro-file")
   local macro_rel = macro_file and stringify(macro_file) or "math-macros.tex"
-  local macros = read_file(join_path(assets_dir, macro_rel)) or read_file(macro_rel) or ""
+  local macros = util.read_file(util.join_path(assets_dir, macro_rel)) or util.read_file(macro_rel) or ""
   local extra_macros = render_extra_macros(meta.math)
-  local specs = block_specs(meta)
+  local specs = theorems.build_block_specs(meta)
   local normalized = {}
 
   for _, line in ipairs(body_lines) do

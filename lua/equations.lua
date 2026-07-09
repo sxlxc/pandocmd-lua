@@ -1,7 +1,6 @@
 local util = require("util")
 
 local M = {}
-local equation_counter = 1
 
 local function extract_equation_tag(math)
   local i = 1
@@ -92,74 +91,56 @@ local function make_tagged_equation(math, tag)
   )
 end
 
-local function preprocess_equation_inlines(inlines)
-  local out = pandoc.List({})
-  local i = 1
-  while i <= #inlines do
-    local inline = inlines[i]
-    if inline.t == "Math" and inline.mathtype == "DisplayMath" then
-      local next_i = i + 1
-      if inlines[next_i] and inlines[next_i].t == "Space" then
-        next_i = next_i + 1
-      end
-      local label = nil
-      if inlines[next_i] and inlines[next_i].t == "Str" then
-        label = inlines[next_i].text:match("^%{#(eq:[^}]+)%}$")
-      end
-      if label then
-        out:insert(make_equation(label, equation_counter, inline.text))
-        equation_counter = equation_counter + 1
-        i = next_i + 1
-      else
-        local clean_math, tag = extract_equation_tag(inline.text)
-        if tag then
-          out:insert(make_tagged_equation(clean_math, tag))
-        else
-          out:insert(wrap_display_math(clean_math))
+-- Replaces display math with equation spans; returns the blocks plus a map
+-- from equation identifier to its rendered number, e.g. links["eq:x"] = "(1)".
+function M.preprocess_blocks(blocks)
+  local links = {}
+  local counter = 1
+
+  local function preprocess_equation_inlines(inlines)
+    local out = pandoc.List({})
+    local i = 1
+    while i <= #inlines do
+      local inline = inlines[i]
+      if inline.t == "Math" and inline.mathtype == "DisplayMath" then
+        local next_i = i + 1
+        if inlines[next_i] and inlines[next_i].t == "Space" then
+          next_i = next_i + 1
         end
+        local label = nil
+        if inlines[next_i] and inlines[next_i].t == "Str" then
+          label = inlines[next_i].text:match("^%{#(eq:[^}]+)%}$")
+        end
+        if label then
+          local equation = make_equation(label, counter, inline.text)
+          links[label] = equation.attr.attributes.reference or ("(" .. counter .. ")")
+          out:insert(equation)
+          counter = counter + 1
+          i = next_i + 1
+        else
+          local clean_math, tag = extract_equation_tag(inline.text)
+          if tag then
+            out:insert(make_tagged_equation(clean_math, tag))
+          else
+            out:insert(wrap_display_math(clean_math))
+          end
+          i = i + 1
+        end
+      else
+        out:insert(inline)
         i = i + 1
       end
-    else
-      out:insert(inline)
-      i = i + 1
     end
+    return out
   end
-  return out
-end
 
-function M.preprocess_blocks(blocks)
-  equation_counter = 1
-  return util.walk_blocks(blocks, function(block)
+  blocks = util.walk_blocks(blocks, function(block)
     if block.t == "Para" or block.t == "Plain" then
       block.content = preprocess_equation_inlines(block.content)
     end
     return block
   end)
-end
-
-local function collect_equation_links(inlines, links)
-  for _, inline in ipairs(inlines) do
-    if inline.t == "Span" and util.has_class(inline.attr, "equation") and inline.attr.identifier ~= "" then
-      local ref = inline.attr.attributes.reference or inline.attr.attributes.index
-      if inline.attr.attributes.index and not inline.attr.attributes.reference then
-        ref = "(" .. inline.attr.attributes.index .. ")"
-      end
-      if ref then
-        links[inline.attr.identifier] = ref
-      end
-    end
-    if inline.content then
-      collect_equation_links(inline.content, links)
-    end
-  end
-end
-
-function M.collect_links(blocks, links)
-  util.walk_blocks(blocks, function(block)
-    if block.t == "Para" or block.t == "Plain" or block.t == "Header" then
-      collect_equation_links(block.content, links)
-    end
-  end)
+  return blocks, links
 end
 
 return M

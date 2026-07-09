@@ -95,11 +95,11 @@ function require_command --argument-names command_name hint
 end
 
 function real_path --argument-names path
-    python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$path"
+    path resolve -- "$path"
 end
 
 function stable_hash --argument-names path
-    python3 -c 'import hashlib, os, sys; print(hashlib.sha256(os.path.realpath(sys.argv[1]).encode("utf-8")).hexdigest()[:16])' "$path"
+    printf %s (path resolve -- "$path") | shasum -a 256 | string sub -l 16
 end
 
 function port_open --argument-names port
@@ -198,28 +198,14 @@ function build_preview --argument-names home source output live_reload_url
 end
 
 function live_reload_server_ready --argument-names port
-    python3 -c 'import sys, urllib.error, urllib.request
-url = "http://127.0.0.1:{}/__pandocmd/live-reload/health".format(sys.argv[1])
-try:
-    response = urllib.request.urlopen(url, timeout=1)
-except (OSError, urllib.error.URLError):
-    raise SystemExit(1)
-raise SystemExit(0 if response.status == 204 else 1)
-' "$port"
+    curl -fs --max-time 1 -o /dev/null "http://127.0.0.1:$port/__pandocmd/live-reload/health"
 end
 
 function notify_live_reload --argument-names port path
-    python3 -c 'import json, sys, urllib.error, urllib.request
-url = "http://127.0.0.1:{}/__pandocmd/live-reload".format(sys.argv[1])
-data = json.dumps({"path": sys.argv[2]}).encode("utf-8")
-request = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
-try:
-    response = urllib.request.urlopen(request, timeout=1)
-except (OSError, urllib.error.URLError) as error:
-    print("live reload notification failed: {}".format(error), file=sys.stderr)
-    raise SystemExit(1)
-raise SystemExit(0 if response.status == 204 else 1)
-' "$port" "$path"
+    curl -fsS --max-time 1 \
+        -H 'Content-Type: application/json' \
+        --data "{\"path\":\"$path\"}" \
+        "http://127.0.0.1:$port/__pandocmd/live-reload"
 end
 
 function start_asset_server --argument-names home port log_file
@@ -258,13 +244,19 @@ function start_server_background --argument-names home port
 
     set -l pid (start_asset_server "$home" "$port" "$log_file")
     echo "$pid" >"$pid_file"
-    sleep 0.3
 
-    if not kill -0 "$pid" 2>/dev/null
-        fail "server exited; see $log_file"
+    set -l ready 0
+    for attempt in (seq 40)
+        if not kill -0 "$pid" 2>/dev/null
+            fail "server exited; see $log_file"
+        end
+        if live_reload_server_ready "$port"
+            set ready 1
+            break
+        end
+        sleep 0.05
     end
-
-    if not port_open "$port"
+    if test "$ready" -ne 1
         fail "server did not open port $port; see $log_file"
     end
 
@@ -355,8 +347,6 @@ if set -q _flag_help
     exit 0
 end
 
-require_command python3 "Install it with Homebrew: brew install python"
-
 set -l port "$default_port"
 if set -q _flag_port
     set port $_flag_port[-1]
@@ -384,6 +374,7 @@ if set -q _flag_serve_only
     if test (count $argv) -ne 0
         fail "--serve-only does not accept a Markdown file"
     end
+    require_command python3 "Install it with Homebrew: brew install python"
     serve_foreground "$pandocmd_home" "$port"
     exit $status
 end
@@ -411,15 +402,32 @@ end
 require_command pandoc "Install it with Homebrew: brew install pandoc"
 if not set -q _flag_build_only
     require_command entr "Install it with Homebrew: brew install entr"
+    require_command python3 "Install it with Homebrew: brew install python"
 end
 
 build_preview "$pandocmd_home" "$source" "$output" "$live_reload_url"
 or exit $status
 
-log_status Built (styled stderr source (basename "$source")) " -> " (styled stderr hash "$hash")
-if set -q _flag_notify_reload
-    notify_live_reload "$port" "/preview/$hash.html"
-    or log_status Reload "notification failed"
+# Watch rebuilds (--notify-reload) stay quiet on success; the browser reload
+# is the feedback. The no-browser warning prints once per disconnected spell.
+if not set -q _flag_notify_reload
+    log_status Built (styled stderr source (basename "$source")) " -> " (styled stderr hash "$hash")
+else
+    set -l no_clients_marker "/tmp/pandocmd-preview-$port.noclients"
+    set -l reload_response (notify_live_reload "$port" "/preview/$hash.html")
+    if test $status -ne 0
+        log_status Reload "notification failed"
+    else
+        set -l client_count (string match -r '"clients":\s*([0-9]+)' -- "$reload_response")[2]
+        if test "$client_count" = "0"
+            if not test -f "$no_clients_marker"
+                touch "$no_clients_marker"
+                log_status Reload "no browser connected; open " (styled stderr url "http://127.0.0.1:$port/preview/$hash.html")
+            end
+        else if test -n "$client_count"
+            command rm -f "$no_clients_marker"
+        end
+    end
 end
 if not set -q _flag_no_url; and set -q _flag_build_only
     print_url "$url"
@@ -431,6 +439,7 @@ end
 
 start_server_background "$pandocmd_home" "$port"
 install_owned_server_traps
+command rm -f "/tmp/pandocmd-preview-$port.noclients"
 set -l watch_url ""
 if not set -q _flag_no_url
     set watch_url "$url"

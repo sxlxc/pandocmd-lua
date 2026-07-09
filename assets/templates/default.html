@@ -7,6 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="googlebot" content="noindex" />
     <title>$title$</title>
+    <link rel="preload" href="/fonts/Lato-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/Lato-Bold.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/LeteSansMath.woff2" as="font" type="font/woff2" crossorigin />
     $stylesheets$
     <link rel="stylesheet" href="/katex/katex.min.css" />
     <script defer src="/katex/katex.min.js"></script>
@@ -162,12 +165,12 @@
         </div>
     </div>
     <script>
-        (function () {
-            if (document.readyState === "loading") {
-                document.addEventListener("DOMContentLoaded", renderKatexMath);
-            } else {
-                renderKatexMath();
-            }
+        window.__pandocmd = window.__pandocmd || {};
+
+        function initKatex() {
+            renderKatexMath();
+
+            return function () {};
 
             function renderKatexMath() {
                 var mathNodes;
@@ -209,13 +212,13 @@
                     document.body.classList.add("has-katex");
                 }
             }
-        }());
+        }
 
-        (function () {
+        function initFolding() {
             var body = document.querySelector(".text-space section.body");
 
             if (!body) {
-                return;
+                return function () {};
             }
 
             var headings = Array.prototype.slice.call(
@@ -469,9 +472,11 @@
                     syncFoldState(true);
                 }
             }
-        }());
 
-        (function () {
+            return function () {};
+        }
+
+        function initXref() {
             var body = document.querySelector(".text-space section.body");
             var targetSelector = [
                 ".theorem-environment[id]",
@@ -486,7 +491,7 @@
             var hideTimer = null;
 
             if (!body) {
-                return;
+                return function () {};
             }
 
             Array.prototype.slice.call(body.querySelectorAll("a[href^=\"#\"]")).forEach(function (link) {
@@ -708,7 +713,78 @@
                     )
                 );
             }
-        }());
+
+            return function teardown() {
+                hide();
+
+                if (preview && preview.parentNode) {
+                    preview.parentNode.removeChild(preview);
+                }
+            };
+        }
+
+        function enhance() {
+            var teardowns = window.__pandocmd.teardowns || [];
+
+            while (teardowns.length) {
+                var teardown = teardowns.pop();
+
+                try {
+                    teardown();
+                } catch (error) {
+                    /* ignore teardown failures */
+                }
+            }
+
+            teardowns.push(initKatex());
+            teardowns.push(initFolding());
+            teardowns.push(initXref());
+            window.__pandocmd.teardowns = teardowns;
+        }
+
+        // Live reload swaps only the article/toc content in place instead of a
+        // full navigation, so the <head> (fonts, KaTeX runtime, stylesheets)
+        // stays loaded and the page does not flash or reflow. Scroll position is
+        // preserved and the content enhancers are re-run on the new markup.
+        function softReload() {
+            var scrollLeft = window.scrollX;
+            var scrollTop = window.scrollY;
+
+            fetch(window.location.href, { cache: "no-store" })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error("live reload fetch failed: " + response.status);
+                    }
+
+                    return response.text();
+                })
+                .then(function (html) {
+                    var parsed = new DOMParser().parseFromString(html, "text/html");
+                    var next = parsed.querySelector(".page-layout");
+                    var current = document.querySelector(".page-layout");
+
+                    if (!next || !current) {
+                        throw new Error("live reload could not find .page-layout");
+                    }
+
+                    document.title = parsed.title;
+                    current.innerHTML = next.innerHTML;
+                    enhance();
+                    window.scrollTo({ left: scrollLeft, top: scrollTop, behavior: "instant" });
+                })
+                .catch(function () {
+                    window.location.reload();
+                });
+        }
+
+        window.__pandocmd.enhance = enhance;
+        window.__pandocmd.softReload = softReload;
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", enhance);
+        } else {
+            enhance();
+        }
     </script>
 $live-reload$
 </body>

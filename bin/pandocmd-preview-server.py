@@ -49,10 +49,15 @@ class LiveReloadHub:
             flush=True,
         )
 
+        delivered = 0
         for client in clients:
-            if not client.send_text(text):
+            if client.send_text(text):
+                delivered += 1
+            else:
                 self.unregister(client)
                 client.close()
+
+        return delivered
 
 
 class LiveReloadClient:
@@ -197,6 +202,16 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
+        elif path.startswith("/fonts/") or path.startswith("/katex/"):
+            # Fonts and the KaTeX runtime do not change while editing, so let the
+            # browser reuse them across reloads with no revalidation round-trip.
+            # This is what keeps the web fonts ready before first paint, so live
+            # reload no longer flashes a fallback font and reflows the page.
+            self.send_header("Cache-Control", "public, max-age=604800, immutable")
+        else:
+            # Stylesheets and other assets are edited live; revalidate so edits
+            # show on the next reload (a 304 when unchanged is cheap).
+            self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
     def do_GET(self):
@@ -275,9 +290,13 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(400, "Invalid JSON")
                 return
 
-        self.hub.broadcast_reload(path)
-        self.send_response(204)
+        delivered = self.hub.broadcast_reload(path)
+        response = json.dumps({"clients": delivered}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
         self.end_headers()
+        self.wfile.write(response)
 
     def handle_reload_health(self):
         self.send_response(204)
