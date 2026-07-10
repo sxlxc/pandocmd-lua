@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
+import argparse
 import base64
 import functools
 import hashlib
 import http.server
 import json
+import os
 import socket
 import struct
 import sys
@@ -314,16 +316,53 @@ class PreviewServer(http.server.ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def main():
-    if len(sys.argv) != 3:
-        print("Usage: pandocmd-preview-server.py PORT ASSETS_DIR", file=sys.stderr)
-        return 2
+def daemonize(pid_file, log_file):
+    # Detach into a session of our own so the hub outlives the `ppl` invocation
+    # that launched it: a Ctrl-C in that terminal (SIGINT to its process group)
+    # must not reach us. Double-fork + setsid is the portable way to do this on
+    # macOS, which ships no setsid(1).
+    if os.fork() > 0:
+        os._exit(0)
+    os.setsid()
+    if os.fork() > 0:
+        os._exit(0)
 
-    port = int(sys.argv[1])
-    directory = sys.argv[2]
+    os.chdir("/")
+    with open(os.devnull, "rb") as devnull:
+        os.dup2(devnull.fileno(), sys.stdin.fileno())
+    log = open(log_file or os.devnull, "a", buffering=1)
+    os.dup2(log.fileno(), sys.stdout.fileno())
+    os.dup2(log.fileno(), sys.stderr.fileno())
+
+    if pid_file:
+        with open(pid_file, "w") as handle:
+            handle.write("{}\n".format(os.getpid()))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="pandocmd live-reload hub / static server")
+    parser.add_argument("port", type=int, help="port to listen on (127.0.0.1)")
+    parser.add_argument("directory", help="document root for static fallback serving")
+    parser.add_argument("--daemon", action="store_true", help="detach and run in the background")
+    parser.add_argument("--pid-file", help="write the daemon pid here")
+    parser.add_argument("--log-file", help="redirect daemon stdout/stderr here")
+    args = parser.parse_args()
+
     hub = LiveReloadHub()
-    handler = functools.partial(PreviewHandler, directory=directory, hub=hub)
-    PreviewServer(("127.0.0.1", port), handler).serve_forever()
+    handler = functools.partial(PreviewHandler, directory=args.directory, hub=hub)
+
+    # Bind before detaching so a port conflict surfaces as a non-zero exit to the
+    # launcher instead of a silently-dead background process.
+    try:
+        server = PreviewServer(("127.0.0.1", args.port), handler)
+    except OSError as error:
+        print("pandocmd hub: cannot bind 127.0.0.1:{}: {}".format(args.port, error), file=sys.stderr)
+        return 1
+
+    if args.daemon:
+        daemonize(args.pid_file, args.log_file)
+
+    server.serve_forever()
     return 0
 
 

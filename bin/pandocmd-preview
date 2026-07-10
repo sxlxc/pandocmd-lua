@@ -1,8 +1,14 @@
 #!/usr/bin/env fish
 
-set -g default_port 8000
-set -g pandocmd_owned_server_pid ""
-set -g pandocmd_owned_server_pid_file ""
+# Static preview files are served by the local nginx on port 80 (document root
+# is the repo's assets/ directory, via the /opt/homebrew/var/www/pandocmd
+# symlink). Live reload is a single persistent hub daemon on 127.0.0.1:35729
+# that nginx proxies at /livereload. The hub outlives every `ppl` invocation, so
+# the WebSocket URL (ws://127.0.0.1/livereload) is stable and open browser tabs
+# keep reloading across repeated runs.
+
+set -g default_public_port 80
+set -g hub_port 35729
 
 function use_color --argument-names stream
     switch "$stream"
@@ -37,6 +43,8 @@ function styled --argument-names stream role
             set_color --underline cyan
         case meta
             set_color --dim white
+        case warn
+            set_color --bold yellow
     end
 
     printf "%s" $text
@@ -70,12 +78,14 @@ function usage
     echo "Usage: pandocmd-preview [OPTIONS] FILE.md"
     echo
     echo "Build and preview one Markdown file with the pandocmd Lua pipeline."
+    echo "Static files are served by the local nginx on port 80; live reload uses a"
+    echo "persistent hub daemon on 127.0.0.1:$hub_port that nginx proxies at /livereload."
     echo
     echo "Options:"
     echo "  --build-only      Build once and exit"
-    echo "  --serve-only      Serve the shared assets directory and exit when stopped"
     echo "  --hash-only       Print the stable path hash for FILE.md and exit"
-    echo "  -p, --port PORT   Preview server port (default: $default_port)"
+    echo "  --stop            Stop the live-reload hub daemon and exit"
+    echo "  -p, --port PORT   Public nginx port for the printed URL (default: $default_public_port)"
     echo "  -h, --help        Show this help"
 end
 
@@ -102,52 +112,32 @@ function stable_hash --argument-names path
     printf %s (path resolve -- "$path") | shasum -a 256 | string sub -l 16
 end
 
-function port_open --argument-names port
-    python3 -c 'import socket, sys
-s = socket.socket()
-s.settimeout(0.25)
-try:
-    code = s.connect_ex(("127.0.0.1", int(sys.argv[1])))
-finally:
-    s.close()
-raise SystemExit(0 if code == 0 else 1)' "$port"
-end
-
-function server_pid_file --argument-names port
-    echo "/tmp/pandocmd-preview-$port.pid"
-end
-
-function server_log_file --argument-names port
-    echo "/tmp/pandocmd-preview-$port.log"
-end
-
-function cleanup_owned_server --argument-names wait_mode
-    if test -n "$pandocmd_owned_server_pid"
-        kill "$pandocmd_owned_server_pid" 2>/dev/null
-        if test "$wait_mode" = "--wait"
-            wait "$pandocmd_owned_server_pid" 2>/dev/null
-        end
+function preview_url --argument-names port hash
+    if test "$port" = "80"
+        echo "http://127.0.0.1/preview/$hash.html"
+    else
+        echo "http://127.0.0.1:$port/preview/$hash.html"
     end
-
-    if test -n "$pandocmd_owned_server_pid_file"; and test -f "$pandocmd_owned_server_pid_file"
-        set -l stored_pid (string trim -- (cat "$pandocmd_owned_server_pid_file"))
-        if test "$stored_pid" = "$pandocmd_owned_server_pid"
-            command rm -f "$pandocmd_owned_server_pid_file"
-        end
-    end
-
-    set -g pandocmd_owned_server_pid ""
-    set -g pandocmd_owned_server_pid_file ""
 end
 
-function install_owned_server_traps
-    trap "cleanup_owned_server; exit 130" INT
-    trap "cleanup_owned_server; exit 143" TERM
-    trap "cleanup_owned_server" EXIT
+# ---------------------------------------------------------------------------
+# Live-reload hub (persistent daemon, shared across invocations)
+# ---------------------------------------------------------------------------
+
+function hub_pid_file --argument-names port
+    echo "/tmp/pandocmd-livereload-$port.pid"
 end
 
-function running_server_pid --argument-names port
-    set -l pid_file (server_pid_file "$port")
+function hub_log_file --argument-names port
+    echo "/tmp/pandocmd-livereload-$port.log"
+end
+
+function hub_ready --argument-names port
+    curl -fs --max-time 1 -o /dev/null "http://127.0.0.1:$port/__pandocmd/live-reload/health"
+end
+
+function hub_pid --argument-names port
+    set -l pid_file (hub_pid_file "$port")
     if test -f "$pid_file"
         set -l pid (string trim -- (cat "$pid_file"))
         if test -n "$pid"; and kill -0 "$pid" 2>/dev/null
@@ -158,31 +148,64 @@ function running_server_pid --argument-names port
     return 1
 end
 
-function registered_server_process --argument-names pid
-    set -l command_line (ps -p "$pid" -o command= 2>/dev/null)
-    string match -q "*pandocmd-preview-server.py*" -- "$command_line"
-    or string match -q "*http.server*" -- "$command_line"
-end
-
-function stop_registered_server --argument-names port pid
-    set -l pid_file (server_pid_file "$port")
-
-    if test -n "$pid"; and registered_server_process "$pid"
-        kill "$pid" 2>/dev/null
-        sleep 0.2
+function ensure_hub --argument-names home port
+    if hub_ready "$port"
+        set -l pid (hub_pid "$port")
+        log_status LiveReload "hub ready at " (styled stderr url "ws://127.0.0.1/livereload") " " (styled stderr meta "(pid $pid, port $port)")
+        return 0
     end
 
-    if test -f "$pid_file"
-        set -l stored_pid (string trim -- (cat "$pid_file"))
-        if test "$stored_pid" = "$pid"
-            command rm -f "$pid_file"
+    set -l pid_file (hub_pid_file "$port")
+    set -l log_file (hub_log_file "$port")
+
+    if not python3 "$home/bin/pandocmd-preview-server.py" --daemon --pid-file "$pid_file" --log-file "$log_file" "$port" "$home/assets"
+        fail "could not start live-reload hub on port $port; see $log_file"
+    end
+
+    for attempt in (seq 40)
+        if hub_ready "$port"
+            set -l pid (hub_pid "$port")
+            log_status LiveReload "hub started at " (styled stderr url "ws://127.0.0.1/livereload") " " (styled stderr meta "(pid $pid, log $log_file)")
+            return 0
         end
+        sleep 0.05
     end
+
+    fail "live-reload hub did not become ready on port $port; see $log_file"
 end
+
+function stop_hub --argument-names port
+    set -l pid (hub_pid "$port")
+    if test -z "$pid"
+        log_status LiveReload "no hub running on port $port"
+        command rm -f (hub_pid_file "$port")
+        return 0
+    end
+
+    kill "$pid" 2>/dev/null
+    for attempt in (seq 20)
+        if not kill -0 "$pid" 2>/dev/null
+            break
+        end
+        sleep 0.05
+    end
+    command rm -f (hub_pid_file "$port")
+    log_status LiveReload "stopped hub " (styled stderr meta "(pid $pid)")
+end
+
+function notify_live_reload --argument-names port path
+    curl -fsS --max-time 1 \
+        -H 'Content-Type: application/json' \
+        --data "{\"path\":\"$path\"}" \
+        "http://127.0.0.1:$port/__pandocmd/live-reload"
+end
+
+# ---------------------------------------------------------------------------
+# Build + watch
+# ---------------------------------------------------------------------------
 
 function ensure_preview_layout --argument-names home
     set -l preview_dir "$home/assets/preview"
-
     mkdir -p "$preview_dir"; or fail "could not create $preview_dir"
 end
 
@@ -197,123 +220,12 @@ function build_preview --argument-names home source output live_reload_url
         -o "$output"
 end
 
-function live_reload_server_ready --argument-names port
-    curl -fs --max-time 1 -o /dev/null "http://127.0.0.1:$port/__pandocmd/live-reload/health"
-end
-
-function notify_live_reload --argument-names port path
-    curl -fsS --max-time 1 \
-        -H 'Content-Type: application/json' \
-        --data "{\"path\":\"$path\"}" \
-        "http://127.0.0.1:$port/__pandocmd/live-reload"
-end
-
-function start_asset_server --argument-names home port log_file
-    python3 "$home/bin/pandocmd-preview-server.py" "$port" "$home/assets" >"$log_file" 2>&1 &
-    echo $last_pid
-end
-
-function start_server_background --argument-names home port
-    ensure_preview_layout "$home"
-
-    set -l pid (running_server_pid "$port")
-    if test -n "$pid"
-        if live_reload_server_ready "$port"
-            set -l server_url "http://127.0.0.1:$port/"
-            log_status Serving "already running at " (styled stderr url "$server_url") " " (styled stderr meta "(pid $pid)")
-            return 0
-        end
-
-        log_status Serving "restarting stale preview server " (styled stderr meta "(pid $pid)")
-        stop_registered_server "$port" "$pid"
+function warn_if_nginx_missing --argument-names url
+    set -l code (curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$url")
+    if test "$code" != 200
+        log_status Warning (styled stderr warn "nginx did not serve ") (styled stderr url "$url") (styled stderr warn " (HTTP $code)")
+        log_status "" (styled stderr meta "start it with: brew services start nginx")
     end
-
-    set pid (running_server_pid "$port")
-    if test -n "$pid"
-        set -l server_url "http://127.0.0.1:$port/"
-        log_status Serving "already running at " (styled stderr url "$server_url") " " (styled stderr meta "(pid $pid)")
-        return 0
-    end
-
-    if port_open "$port"
-        fail "port $port is already in use; pass --port PORT"
-    end
-
-    set -l pid_file (server_pid_file "$port")
-    set -l log_file (server_log_file "$port")
-
-    set -l pid (start_asset_server "$home" "$port" "$log_file")
-    echo "$pid" >"$pid_file"
-
-    set -l ready 0
-    for attempt in (seq 40)
-        if not kill -0 "$pid" 2>/dev/null
-            fail "server exited; see $log_file"
-        end
-        if live_reload_server_ready "$port"
-            set ready 1
-            break
-        end
-        sleep 0.05
-    end
-    if test "$ready" -ne 1
-        fail "server did not open port $port; see $log_file"
-    end
-
-    set -g pandocmd_owned_server_pid "$pid"
-    set -g pandocmd_owned_server_pid_file "$pid_file"
-
-    set -l server_url "http://127.0.0.1:$port/"
-    log_status Serving "$home/assets at " (styled stderr url "$server_url") " " (styled stderr meta "(pid $pid, log $log_file)")
-end
-
-function serve_foreground --argument-names home port
-    ensure_preview_layout "$home"
-
-    set -l existing_pid (running_server_pid "$port")
-    if test -n "$existing_pid"
-        if live_reload_server_ready "$port"
-            set -l server_url "http://127.0.0.1:$port/"
-            log_status Serving "already running at " (styled stderr url "$server_url") " " (styled stderr meta "(pid $existing_pid)")
-            return 0
-        end
-
-        log_status Serving "restarting stale preview server " (styled stderr meta "(pid $existing_pid)")
-        stop_registered_server "$port" "$existing_pid"
-    end
-
-    set existing_pid (running_server_pid "$port")
-    if test -n "$existing_pid"
-        set -l server_url "http://127.0.0.1:$port/"
-        log_status Serving "already running at " (styled stderr url "$server_url") " " (styled stderr meta "(pid $existing_pid)")
-        return 0
-    end
-
-    if port_open "$port"
-        fail "port $port is already in use; pass --port PORT"
-    end
-
-    set -l pid_file (server_pid_file "$port")
-    set -l log_file (server_log_file "$port")
-    set -l server_url "http://127.0.0.1:$port/"
-    log_status Serving "$home/assets at " (styled stderr url "$server_url")
-    set -l pid (start_asset_server "$home" "$port" "$log_file")
-    echo "$pid" >"$pid_file"
-    trap "command rm -f $pid_file; kill $pid 2>/dev/null; exit 130" INT
-    trap "command rm -f $pid_file; kill $pid 2>/dev/null; exit 143" TERM
-    trap "command rm -f $pid_file" EXIT
-    wait "$pid"
-    set -l server_status $status
-
-    if test -f "$pid_file"
-        set -l stored_pid (string trim -- (cat "$pid_file"))
-        if test "$stored_pid" = "$pid"
-            command rm -f "$pid_file"
-        end
-    end
-    trap - INT TERM EXIT
-
-    return "$server_status"
 end
 
 function print_watch_files --argument-names home source
@@ -336,7 +248,11 @@ function watch_preview --argument-names home source script_path port url
     print_watch_files "$home" "$source" | entr -np "$script_path" --build-only --no-url --notify-reload --port "$port" "$source"
 end
 
-argparse h/help build-only serve-only hash-only no-url notify-reload 'p/port=' -- $argv
+# ---------------------------------------------------------------------------
+# Argument handling
+# ---------------------------------------------------------------------------
+
+argparse h/help build-only hash-only stop no-url notify-reload 'p/port=' -- $argv
 or begin
     usage >&2
     exit 2
@@ -347,7 +263,7 @@ if set -q _flag_help
     exit 0
 end
 
-set -l port "$default_port"
+set -l port "$default_public_port"
 if set -q _flag_port
     set port $_flag_port[-1]
 end
@@ -370,13 +286,9 @@ if not test -d "$pandocmd_home/assets"
     fail "could not locate assets relative to $script_path"
 end
 
-if set -q _flag_serve_only
-    if test (count $argv) -ne 0
-        fail "--serve-only does not accept a Markdown file"
-    end
-    require_command python3 "Install it with Homebrew: brew install python"
-    serve_foreground "$pandocmd_home" "$port"
-    exit $status
+if set -q _flag_stop
+    stop_hub "$hub_port"
+    exit 0
 end
 
 if test (count $argv) -ne 1
@@ -391,7 +303,7 @@ end
 
 set -l hash (stable_hash "$source")
 set -l output "$pandocmd_home/assets/preview/$hash.html"
-set -l url "http://127.0.0.1:$port/preview/$hash.html"
+set -l url (preview_url "$port" "$hash")
 set -l live_reload_url "/livereload"
 
 if set -q _flag_hash_only
@@ -413,16 +325,16 @@ or exit $status
 if not set -q _flag_notify_reload
     log_status Built (styled stderr source (basename "$source")) " -> " (styled stderr hash "$hash")
 else
-    set -l no_clients_marker "/tmp/pandocmd-preview-$port.noclients"
-    set -l reload_response (notify_live_reload "$port" "/preview/$hash.html")
+    set -l no_clients_marker "/tmp/pandocmd-livereload-$hub_port.noclients"
+    set -l reload_response (notify_live_reload "$hub_port" "/preview/$hash.html")
     if test $status -ne 0
-        log_status Reload "notification failed"
+        log_status Reload "notification failed (hub down?); run: $script_path $source"
     else
         set -l client_count (string match -r '"clients":\s*([0-9]+)' -- "$reload_response")[2]
         if test "$client_count" = "0"
             if not test -f "$no_clients_marker"
                 touch "$no_clients_marker"
-                log_status Reload "no browser connected; open " (styled stderr url "http://127.0.0.1:$port/preview/$hash.html")
+                log_status Reload "no browser connected; open " (styled stderr url "$url")
             end
         else if test -n "$client_count"
             command rm -f "$no_clients_marker"
@@ -437,15 +349,12 @@ if set -q _flag_build_only
     exit 0
 end
 
-start_server_background "$pandocmd_home" "$port"
-install_owned_server_traps
-command rm -f "/tmp/pandocmd-preview-$port.noclients"
+ensure_hub "$pandocmd_home" "$hub_port"
+warn_if_nginx_missing "$url"
+command rm -f "/tmp/pandocmd-livereload-$hub_port.noclients"
 set -l watch_url ""
 if not set -q _flag_no_url
     set watch_url "$url"
 end
 watch_preview "$pandocmd_home" "$source" "$script_path" "$port" "$watch_url"
-set -l watch_status $status
-cleanup_owned_server --wait
-trap - INT TERM EXIT
-exit "$watch_status"
+exit $status
