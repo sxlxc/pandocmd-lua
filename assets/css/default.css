@@ -761,9 +761,23 @@ body.click-open-notes .page-layout label.margin-toggle {
 
 @media print {
 
+    html {
+        font-size: 10pt;
+    }
+
     .no-print,
     .no-print * {
         display: none !important;
+    }
+
+    .source-line-link {
+        display: none !important;
+    }
+
+    .text-space .math-container[data-source-line] {
+        display: block;
+        width: auto;
+        margin-left: 0;
     }
 
     .page-layout {
