@@ -204,13 +204,30 @@ local function render_extra_macros(math_meta)
   if pandoc.utils.type(math_meta) ~= "table" then
     return ""
   end
+
+  local function stringify_macro_body(body)
+    if pandoc.utils.type(body) ~= "Inlines" then
+      return stringify(body)
+    end
+
+    -- stringify omits raw inlines, but YAML TeX commands are parsed as RawInline.
+    local inlines = pandoc.Inlines(body):walk({
+      RawInline = function(inline)
+        if inline.format == "tex" or inline.format == "latex" then
+          return pandoc.Str(inline.text)
+        end
+      end,
+    })
+    return stringify(inlines)
+  end
+
   for name, body in pairs(math_meta or {}) do
     local macro_name = name
     if not util.starts_with(macro_name, "\\") then
       macro_name = "\\" .. macro_name
     end
     table.insert(lines, "\\providecommand{" .. macro_name .. "}{}")
-    table.insert(lines, "\\renewcommand{" .. macro_name .. "}{" .. stringify(body) .. "}")
+    table.insert(lines, "\\renewcommand{" .. macro_name .. "}{" .. stringify_macro_body(body) .. "}")
   end
   return table.concat(lines, "\n")
 end
