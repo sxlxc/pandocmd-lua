@@ -14,16 +14,21 @@ NGINX_WEBROOT ?= $(NGINX_PREFIX)/var/www/pandocmd
 NGINX_CONF := $(ROOT)/nginx/pandocmd.conf
 NGINX_CONF_LINK := $(NGINX_SERVERS_DIR)/pandocmd.conf
 
-.PHONY: help install link-bin link-fish-completion install-nginx
+.PHONY: help test install link-bin link-fish-completion install-nginx
 
 help:
 	@printf "%s\n" "Targets:"
 	@printf "  %-22s %s\n" "install" "Link the ppl script and fish completion"
+	@printf "  %-22s %s\n" "test" "Run the Lua regression tests under Pandoc"
 	@printf "  %-22s %s\n" "link-bin" "Link bin/pandocmd-preview to $(PPL_BIN)"
 	@printf "  %-22s %s\n" "link-fish-completion" "Link completions/ppl.fish to $(PPL_FISH_COMPLETION)"
 	@printf "  %-22s %s\n" "install-nginx" "Symlink assets web root + nginx server block, then reload"
 
 install: link-bin link-fish-completion
+
+test:
+	@pandoc --from markdown --to native --lua-filter=tests/source-line-preprocess.lua </dev/null >/dev/null
+	@printf "%s\n" "source-line-preprocess tests passed"
 
 link-bin:
 	@mkdir -p "$(BIN_DIR)"

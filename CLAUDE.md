@@ -38,8 +38,9 @@ persistent live-reload hub daemon — see the Preview / live reload section for 
 one-time nginx setup (`nginx/pandocmd.conf` + a web-root symlink).
 
 Runtime dependencies (Homebrew): `pandoc`, `fish`, `entr`, `python`, `nginx`. There
-is **no automated test suite** — `test/` is gitignored and holds sample `.md`
-documents used to verify the pipeline manually by building/previewing them.
+is a focused Lua regression suite, run under Pandoc with `make test`. The `test/`
+directory is gitignored and holds sample `.md` documents used to verify the full
+pipeline manually by building/previewing them.
 
 ## Architecture
 
@@ -99,7 +100,9 @@ Two passes cooperate to make rendered elements link back to their source line:
 `<!-- pandocmd-source-line:N -->` comments; `source-lines.lua` (in the filter)
 consumes those comments, sets `data-source-line` attributes, and inserts clickable
 `zed://file…:N` links (rendered as `.source-line-link`). The source file path comes
-from `doc.meta["pandocmd-source-file"]`.
+from `doc.meta["pandocmd-source-file"]`. After parsing, the reader defensively removes
+the reserved marker pattern from Math nodes so an unrecognized Markdown lexical
+corner cannot corrupt rendered TeX.
 
 ### Section numbering
 

@@ -269,6 +269,7 @@ function Reader(input, reader_options)
   local meta_prefix = yaml and ("---\n" .. yaml .. "\n---\n\n") or ""
   local prepared = meta_prefix .. macros .. "\n\n" .. extra_macros .. "\n\n" .. annotated
   local doc = pandoc.read(prepared, reader_format, reader_options)
+  doc = source_line_preprocess.strip_source_line_markers_from_math(doc)
 
   doc.meta["pandocmd-source-file"] = absolute_path(source)
   doc.meta["pandocmd-assets-dir"] = assets_dir
