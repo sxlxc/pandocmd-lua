@@ -27,8 +27,7 @@
     --color-source-line: #aaaaaa;
     --source-line-width: 3rem;
     --source-line-gap: 0.5rem;
-    --font-main: "Lato", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-    --font-mathml: "Lete Sans Math";
+    --font-main: "Merriweather", Georgia, "Times New Roman", "Songti SC", "STSong", serif;
 }
 
 html {
@@ -47,10 +46,6 @@ body {
     color: var(--color-text);
     background-color: var(--color-bg);
     text-rendering: optimizeLegibility;
-}
-
-body[data-font-profile="serif-katex"] {
-    --font-main: "Merriweather", Georgia, "Times New Roman", "Songti SC", "STSong", serif;
 }
 
 a {
@@ -80,28 +75,6 @@ summary:hover {
 }
 
 /* Math */
-.htmlmathparagraph,
-math,
-mtext {
-    font-family: var(--font-mathml);
-}
-
-.katex-math-render {
-    display: none;
-}
-
-body[data-font-profile="serif-katex"].has-katex math[data-pandocmd-katex-source] {
-    display: none;
-}
-
-body[data-font-profile="serif-katex"].has-katex .katex-math-render.inline {
-    display: inline;
-}
-
-body[data-font-profile="serif-katex"].has-katex .katex-math-render.display {
-    display: block;
-}
-
 .math-container .katex-display {
     margin: 0;
 }
@@ -270,9 +243,32 @@ section.body {
     margin-top: 0;
 }
 
-section.body .abstract-title {
-    font-weight: bold;
+section.body .abstract {
+    --abstract-inline-padding: clamp(1.5rem, 7%, 3.5rem);
+    box-sizing: border-box;
+    margin: 3rem 0 2rem;
+    padding-inline: var(--abstract-inline-padding);
+}
+
+section.body .abstract-title,
+section.body .abstract:not(:has(> .abstract-title))::before {
+    display: block;
+    margin-bottom: 0.75em;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: inherit;
     text-align: center;
+}
+
+/* Pandoc fenced divs (`::: abstract`) do not contain the metadata abstract's
+   explicit title element, so provide the conventional heading in CSS. */
+section.body .abstract:not(:has(> .abstract-title))::before {
+    content: "Abstract";
+}
+
+section.body .abstract > p:first-child,
+section.body .abstract-title + p {
+    margin-top: 0;
 }
 
 .page-header {
@@ -289,6 +285,7 @@ section.body .abstract-title {
 }
 
 .text-space .source-line[data-source-line],
+.text-space .abstract[data-source-line],
 .text-space .theorem-environment[data-source-line],
 .text-space .equation[data-source-line],
 .text-space .math-container[data-source-line] {
@@ -337,6 +334,11 @@ section.body .abstract-title {
 .text-space .source-line-link:focus-visible {
     color: var(--color-text);
     text-decoration: underline;
+}
+
+.text-space .abstract[data-source-line] > .source-line-link {
+    top: calc(1.4em + 0.75em);
+    right: calc(100% - var(--abstract-inline-padding) + var(--source-line-gap));
 }
 
 .text-space .math-container[data-source-line]>.source-line-link {
@@ -446,8 +448,7 @@ section.body .abstract-title {
     align-items: center;
 }
 
-.nav-button,
-.nav-select {
+.nav-button {
     border: none;
     color: var(--color-text);
     background: var(--color-button-bg);
@@ -467,20 +468,11 @@ section.body .abstract-title {
     user-select: none;
 }
 
-.nav-select {
-    height: var(--controls-height);
-    max-width: 11rem;
-    padding: 0 0.35rem;
-    border-radius: 0;
-    cursor: pointer;
-}
-
 .nav-button:visited {
     color: var(--color-text);
 }
 
-.nav-button:hover,
-.nav-select:hover {
+.nav-button:hover {
     border-color: var(--color-link);
     color: var(--color-link);
     text-decoration: none;
@@ -492,8 +484,7 @@ section.body .abstract-title {
     background: #f1f6ff;
 }
 
-.nav-button:focus-visible,
-.nav-select:focus-visible {
+.nav-button:focus-visible {
     outline: 2px solid var(--color-link);
     outline-offset: 2px;
 }

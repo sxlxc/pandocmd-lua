@@ -158,9 +158,9 @@ fonts/KaTeX loaded and scroll position intact, then re-runs the content enhancer
 (KaTeX render, section folding, cross-reference hover previews) defined in
 `assets/templates/default.html`.
 
-The template ships two font profiles switchable client-side: `Sans+MathML` (uses the
-browser's MathML from `html_math_method = "mathml"`) and `Serif+KaTeX` (KaTeX
-re-renders from the MathML TeX annotation).
+The template uses Merriweather for body text and KaTeX for math. Pandoc's KaTeX
+HTML mode emits the TeX in `.math` spans, which the bundled client-side KaTeX
+runtime renders directly without an intermediate MathML conversion.
 
 ## Conventions when editing
 

@@ -173,7 +173,7 @@ end
 function Writer(doc, opts)
   local custom_section_numbers = doc.meta["pandocmd-custom-section-numbers"] == true
   local html_opts = pandoc.WriterOptions({
-    html_math_method = "mathml",
+    html_math_method = "katex",
     number_sections = not custom_section_numbers,
   })
   local body = pandoc.write(doc, "html5", html_opts)

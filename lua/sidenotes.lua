@@ -2,7 +2,7 @@ local util = require("util")
 
 local M = {}
 
-local html_writer_options = pandoc.WriterOptions({ html_math_method = "mathml" })
+local html_writer_options = pandoc.WriterOptions({ html_math_method = "katex" })
 
 local function note_html(blocks)
   local html = pandoc.write(pandoc.Pandoc(blocks), "html5", html_writer_options)

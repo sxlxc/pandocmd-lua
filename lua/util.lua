@@ -132,7 +132,7 @@ function M.walk_blocks(blocks, visit)
 end
 
 local inline_writer_options = pandoc.WriterOptions({
-  html_math_method = "mathml",
+  html_math_method = "katex",
   wrap_text = "none",
 })
 
