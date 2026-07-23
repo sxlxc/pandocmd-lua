@@ -13,6 +13,7 @@ local source_lines = require("source-lines")
 local theorems = require("theorems")
 local sidenotes = require("sidenotes")
 local page_meta = require("page-meta")
+local math_punctuation = require("math-punctuation")
 
 local function is_source_line_div(block)
   return util.has_class(block.attr, "source-line")
@@ -106,5 +107,6 @@ function Pandoc(doc)
   if doc.meta.bibliography ~= nil then
     doc = pandoc.utils.citeproc(doc)
   end
+  doc = doc:walk(math_punctuation)
   return doc
 end

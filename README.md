@@ -59,10 +59,12 @@ per-path cache-control) and proxies `/livereload` to the hub daemon on
 pandocmd-preview path/to/main.md
 ```
 
-The command builds once, logs the preview URL, ensures the live-reload hub is
-running (starting it detached if needed, reusing it otherwise), watches the
-source, Lua filters, templates, and CSS for rebuilds, and reloads the browser
-over the nginx-proxied WebSocket when the preview HTML changes.
+The command shows a compact terminal dashboard with the source, preview URL,
+live-reload state, and Pandoc diagnostics from the latest compile. It ensures
+the live-reload hub is running (starting it detached if needed, reusing it
+otherwise), watches the source, Lua filters, templates, and CSS for rebuilds,
+and reloads the browser over the nginx-proxied WebSocket when the preview HTML
+changes.
 
 Because the hub is a persistent daemon on a fixed port — decoupled from any
 single `pandocmd-preview` run — the WebSocket URL (`ws://127.0.0.1/livereload`)
