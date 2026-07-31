@@ -3,6 +3,39 @@
   margin: 1em 0;
 }
 
+.algorithm {
+  position: relative;
+  margin: 1em 0;
+  text-align: center;
+}
+
+.algo-box {
+  display: inline-block;
+  box-sizing: border-box;
+  max-width: 85%;
+  padding: 0.75em 1em;
+  border: 1px solid currentColor;
+  overflow-wrap: break-word;
+  text-align: left;
+  white-space: normal;
+}
+
+.algo-box > p {
+  margin: 0;
+}
+
+.algo-line {
+  display: block;
+  padding-left: calc(var(--algo-indent, 0rem) + 2rem);
+  text-indent: -2rem;
+}
+
+.algorithm > p > .algo-caption {
+  display: block;
+  margin-top: 0.4em;
+  text-align: center;
+}
+
 .theorem-header {
   font-weight: bold;
   font-style: normal;

@@ -29,6 +29,8 @@ install: link-bin link-fish-completion
 test:
 	@pandoc --from markdown --to native --lua-filter=tests/source-line-preprocess.lua </dev/null >/dev/null
 	@printf "%s\n" "source-line-preprocess tests passed"
+	@pandoc --from markdown --to native --lua-filter=tests/algorithms.lua </dev/null >/dev/null
+	@printf "%s\n" "algorithm tests passed"
 
 link-bin:
 	@mkdir -p "$(BIN_DIR)"

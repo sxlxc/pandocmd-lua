@@ -7,6 +7,7 @@ local script_dir = debug.getinfo(1, "S").source:match("^@(.*/)[^/]*$") or ""
 package.path = script_dir .. "?.lua;" .. package.path
 
 local util = require("util")
+local algorithms = require("algorithms")
 local equations = require("equations")
 local references = require("references")
 local source_lines = require("source-lines")
@@ -79,9 +80,10 @@ function Pandoc(doc)
   local custom_section_numbers = references.has_appendix_headers(doc.blocks)
   doc.meta["pandocmd-custom-section-numbers"] = custom_section_numbers
 
-  local equation_links, theorem_links
+  local algorithm_links, equation_links, theorem_links
   doc.blocks, equation_links = equations.preprocess_blocks(doc.blocks)
   doc.blocks = source_lines.annotate_blocks(source_file, doc.blocks)
+  doc.blocks, algorithm_links = algorithms.preprocess_blocks(doc.blocks)
   doc.blocks, theorem_links = theorems.preprocess_blocks(doc.blocks, specs)
 
   local links = {}
@@ -89,6 +91,9 @@ function Pandoc(doc)
     links[k] = "Eq. " .. v
   end
   for k, v in pairs(theorem_links) do
+    links[k] = v
+  end
+  for k, v in pairs(algorithm_links) do
     links[k] = v
   end
   for k, v in pairs(references.section_numbers(doc.blocks)) do
@@ -101,6 +106,7 @@ function Pandoc(doc)
     doc.blocks = references.render_header_numbers(doc.blocks)
   end
   doc.blocks = theorems.render_blocks(doc.blocks)
+  doc.blocks = algorithms.render_blocks(doc.blocks)
   doc.blocks = sidenotes.render_blocks(doc.blocks)
   doc.blocks = unwrap_div_paragraphs(doc.blocks)
 

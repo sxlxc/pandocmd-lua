@@ -9,6 +9,7 @@ local script_dir = debug.getinfo(1, "S").source:match("^@(.*/)[^/]*$") or ""
 package.path = script_dir .. "?.lua;" .. package.path
 
 local util = require("util")
+local algorithms = require("algorithms")
 local theorems = require("theorems")
 local source_line_preprocess = require("source-line-preprocess")
 
@@ -264,10 +265,12 @@ function Reader(input, reader_options)
   for _, line in ipairs(body_lines) do
     table.insert(normalized, normalize_fenced_div(line, specs))
   end
+  normalized = algorithms.preserve_source_indentation(normalized)
 
   local annotated = source_line_preprocess.annotate_source_lines(body_start, normalized)
   local meta_prefix = yaml and ("---\n" .. yaml .. "\n---\n\n") or ""
-  local prepared = meta_prefix .. macros .. "\n\n" .. extra_macros .. "\n\n" .. annotated
+  local algo_macros = "\\providecommand{\\textsc}[1]{\\text{【#1】}}"
+  local prepared = meta_prefix .. macros .. "\n\n" .. extra_macros .. "\n\n" .. algo_macros .. "\n\n" .. annotated
   local doc = pandoc.read(prepared, reader_format, reader_options)
   doc = source_line_preprocess.strip_source_line_markers_from_math(doc)
 
