@@ -1017,6 +1017,7 @@ def runtime_watch_files(paths):
     files = set(paths.lua.glob("*.lua"))
     files.update((paths.assets / "templates").glob("*.html"))
     files.update((paths.assets / "css").glob("*.css"))
+    files.update((paths.assets / "js").rglob("*.js"))
     files.update(paths.assets.glob("*.tex"))
     files.update(paths.assets.glob("*.csl"))
     return {canonical_path(path) for path in files if path.is_file()}

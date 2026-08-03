@@ -170,6 +170,43 @@ local function live_reload_script()
   return script:gsub("__ENDPOINT__", js_string(endpoint))
 end
 
+local line_breaking_files = {
+  "css/default.css",
+  "css/chao-theorems.css",
+  "css/line-breaking.css",
+  "js/vendor/typeset/linked-list.js",
+  "js/vendor/typeset/linebreak.js",
+  "js/vendor/hypher/hypher.browser.js",
+  "js/vendor/hyphenation-patterns/en-us.js",
+  "js/line-breaking.js",
+}
+
+local function line_breaking_assets(meta)
+  local assets_dir = stringify(meta["pandocmd-assets-dir"] or "assets")
+  local asset_base = stringify(meta["pandocmd-asset-base-url"] or ""):gsub("/+$", "")
+  local contents = {}
+  for _, relative_path in ipairs(line_breaking_files) do
+    local path = util.join_path(assets_dir, relative_path)
+    contents[#contents + 1] = util.read_file(path)
+      or error("could not read line-breaking asset " .. path)
+  end
+  local fingerprint = pandoc.sha1(table.concat(contents, "\0"))
+  local query = "?v=" .. fingerprint
+  local function asset_url(path)
+    return util.escape_html(asset_base .. "/" .. path)
+  end
+  local tags = {
+    '<meta name="pandocmd-line-breaking-fingerprint" content="' .. fingerprint .. '" />',
+    '<link rel="stylesheet" href="' .. asset_url("css/line-breaking.css") .. query .. '" />',
+    '<script defer src="' .. asset_url("js/vendor/typeset/linked-list.js") .. query .. '"></script>',
+    '<script defer src="' .. asset_url("js/vendor/typeset/linebreak.js") .. query .. '"></script>',
+    '<script defer src="' .. asset_url("js/vendor/hypher/hypher.browser.js") .. query .. '"></script>',
+    '<script defer src="' .. asset_url("js/vendor/hyphenation-patterns/en-us.js") .. query .. '"></script>',
+    '<script defer src="' .. asset_url("js/line-breaking.js") .. query .. '"></script>',
+  }
+  return table.concat(tags, "\n")
+end
+
 function Writer(doc, opts)
   local custom_section_numbers = doc.meta["pandocmd-custom-section-numbers"] == true
   local html_opts = pandoc.WriterOptions({
@@ -195,6 +232,7 @@ function Writer(doc, opts)
   template = replace_field(template, "abstract", abstract)
   template = replace_field(template, "asset-base", asset_base)
   template = replace_field(template, "stylesheets", stylesheets)
+  template = replace_field(template, "line-breaking-assets", line_breaking_assets(doc.meta))
   template = replace_field(template, "toc", raw_meta_blocks(doc.meta.toc))
   template = replace_field(template, "live-reload", live_reload_script())
   template = replace_field(template, "body", body)

@@ -1,0 +1,60 @@
+/* Browser-side Knuth--Plass layout. All selectors are scoped to generated state. */
+.csl-entry:has(> .csl-right-inline) {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: 0.5em;
+}
+
+.csl-entry > .csl-left-margin {
+    display: block;
+    width: auto;
+    padding-right: 0;
+}
+
+.csl-entry > .csl-right-inline {
+    display: block;
+    min-width: 0;
+}
+
+.pandocmd-kp-active {
+    text-align: justify;
+    text-align-last: left;
+    white-space: nowrap;
+}
+
+.pandocmd-kp-active [data-pandocmd-kp-token="word"] {
+    white-space: nowrap;
+}
+
+.pandocmd-kp-active [data-pandocmd-kp-token="space"] {
+    display: inline-block;
+    white-space: pre;
+}
+
+.pandocmd-kp-break,
+.pandocmd-kp-hyphen {
+    pointer-events: none;
+}
+
+.pandocmd-kp-fallback {
+    text-align: justify;
+    text-align-last: left;
+}
+
+@media print {
+    .pandocmd-kp-active {
+        text-align: justify;
+        text-align-last: left;
+        white-space: normal;
+    }
+
+    .pandocmd-kp-active [data-pandocmd-kp-token] {
+        display: inline;
+        white-space: inherit;
+    }
+
+    .pandocmd-kp-break,
+    .pandocmd-kp-hyphen {
+        display: none;
+    }
+}

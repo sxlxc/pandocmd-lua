@@ -136,11 +136,13 @@ local function attach_source_line_to_next_display_math(source_file, line_no, inl
 end
 
 local function annotate_source_line_inline(source_file, inline)
-  if inline.content then
+  if inline.t == "Image" then
+    inline.caption = annotate_source_line_inlines(source_file, inline.caption)
+  elseif inline.t == "Link" then
+    inline.content = annotate_source_line_inlines(source_file, inline.content)
+  elseif inline.content then
     inline.content = annotate_source_line_inlines(source_file, inline.content)
   elseif inline.t == "Cite" then
-    inline.content = annotate_source_line_inlines(source_file, inline.content)
-  elseif inline.t == "Link" or inline.t == "Image" then
     inline.content = annotate_source_line_inlines(source_file, inline.content)
   end
   return inline

@@ -12,6 +12,7 @@
     $stylesheets$
     <link rel="stylesheet" href="$asset-base$/katex/katex.min.css" />
     <script defer src="$asset-base$/katex/katex.min.js"></script>
+    $line-breaking-assets$
 </head>
 
 <body class="click-open-notes">
@@ -124,6 +125,8 @@
     </div>
     <script>
         window.__pandocmd = window.__pandocmd || {};
+        var softReloadAbort = null;
+        var softReloadGeneration = 0;
 
         function initKatex() {
             renderKatexMath();
@@ -160,6 +163,30 @@
                     mathNode.setAttribute("data-pandocmd-katex-source", tex);
                 });
             }
+        }
+
+        function initLineBreaking() {
+            var previous = window.__pandocmd.lineBreaking;
+            var teardown;
+
+            if (previous && typeof previous.destroy === "function") {
+                previous.destroy();
+            }
+            if (typeof window.__pandocmd.createLineBreaking !== "function") {
+                teardown = function () {};
+                teardown.pandocmdLineBreaking = true;
+                return teardown;
+            }
+
+            var controller = window.__pandocmd.createLineBreaking();
+            window.__pandocmd.lineBreaking = controller;
+            controller.refresh(document.querySelector(".text-space section.body") || document);
+
+            teardown = function () {
+                controller.destroy();
+            };
+            teardown.pandocmdLineBreaking = true;
+            return teardown;
         }
 
         function initFolding() {
@@ -437,20 +464,22 @@
             var preview = null;
             var activeLink = null;
             var hideTimer = null;
+            var linkListeners = [];
 
             if (!body) {
                 return function () {};
             }
 
             Array.prototype.slice.call(body.querySelectorAll("a[href^=\"#\"]")).forEach(function (link) {
-                link.addEventListener("pointerenter", function () {
+                var showLink = function () {
                     show(link);
-                });
+                };
+
+                link.addEventListener("pointerenter", showLink);
                 link.addEventListener("pointerleave", scheduleHide);
-                link.addEventListener("focusin", function () {
-                    show(link);
-                });
+                link.addEventListener("focusin", showLink);
                 link.addEventListener("focusout", scheduleHide);
+                linkListeners.push({ link: link, show: showLink });
             });
 
             function ensurePreview() {
@@ -580,6 +609,13 @@
             }
 
             function scrubClone(node) {
+                if (
+                    window.__pandocmd.lineBreaking &&
+                    typeof window.__pandocmd.lineBreaking.scrubClone === "function"
+                ) {
+                    window.__pandocmd.lineBreaking.scrubClone(node);
+                }
+
                 Array.prototype.slice.call(node.querySelectorAll(".source-line-link")).forEach(function (child) {
                     child.parentNode.removeChild(child);
                 });
@@ -665,17 +701,35 @@
             return function teardown() {
                 hide();
 
+                linkListeners.forEach(function (entry) {
+                    entry.link.removeEventListener("pointerenter", entry.show);
+                    entry.link.removeEventListener("pointerleave", scheduleHide);
+                    entry.link.removeEventListener("focusin", entry.show);
+                    entry.link.removeEventListener("focusout", scheduleHide);
+                });
+                linkListeners = [];
+
                 if (preview && preview.parentNode) {
                     preview.parentNode.removeChild(preview);
                 }
             };
         }
 
-        function enhance() {
+        function enhance(options) {
             var teardowns = window.__pandocmd.teardowns || [];
+            var retainedLineBreaking = [];
+            var preserveLineBreaking = Boolean(
+                options && options.preserveLineBreaking
+            );
+            var refresh = Promise.resolve();
 
             while (teardowns.length) {
                 var teardown = teardowns.pop();
+
+                if (preserveLineBreaking && teardown.pandocmdLineBreaking) {
+                    retainedLineBreaking.push(teardown);
+                    continue;
+                }
 
                 try {
                     teardown();
@@ -685,9 +739,26 @@
             }
 
             teardowns.push(initKatex());
+            if (preserveLineBreaking && retainedLineBreaking.length) {
+                teardowns.push(retainedLineBreaking[0]);
+            } else {
+                teardowns.push(initLineBreaking());
+                preserveLineBreaking = false;
+            }
             teardowns.push(initFolding());
             teardowns.push(initXref());
             window.__pandocmd.teardowns = teardowns;
+
+            if (
+                preserveLineBreaking &&
+                window.__pandocmd.lineBreaking &&
+                typeof window.__pandocmd.lineBreaking.refresh === "function"
+            ) {
+                refresh = window.__pandocmd.lineBreaking.refresh(
+                    document.querySelector(".text-space section.body") || document
+                );
+            }
+            return refresh;
         }
 
         // Live reload swaps only the article/toc content in place instead of a
@@ -736,8 +807,19 @@
         function softReload() {
             var scrollLeft = window.scrollX;
             var scrollTop = window.scrollY;
+            var reloadGeneration = softReloadGeneration + 1;
+            var fetchOptions = { cache: "no-store" };
 
-            fetch(window.location.href, { cache: "no-store" })
+            softReloadGeneration = reloadGeneration;
+            if (softReloadAbort) {
+                softReloadAbort.abort();
+            }
+            if (typeof window.AbortController === "function") {
+                softReloadAbort = new AbortController();
+                fetchOptions.signal = softReloadAbort.signal;
+            }
+
+            return fetch(window.location.href, fetchOptions)
                 .then(function (response) {
                     if (!response.ok) {
                         throw new Error("live reload fetch failed: " + response.status);
@@ -749,18 +831,63 @@
                     var parsed = new DOMParser().parseFromString(html, "text/html");
                     var next = parsed.querySelector(".page-layout");
                     var current = document.querySelector(".page-layout");
+                    var fingerprint = document.querySelector(
+                        'meta[name="pandocmd-line-breaking-fingerprint"]'
+                    );
+                    var nextFingerprint = parsed.querySelector(
+                        'meta[name="pandocmd-line-breaking-fingerprint"]'
+                    );
+                    var controller = window.__pandocmd.lineBreaking;
+                    var nextBody = next && next.querySelector(
+                        ".text-space section.body"
+                    );
+                    var preserveLineBreaking = Boolean(
+                        controller &&
+                        nextBody &&
+                        typeof controller.adoptUnchanged === "function"
+                    );
+
+                    if (reloadGeneration !== softReloadGeneration) {
+                        return null;
+                    }
 
                     if (!next || !current) {
                         throw new Error("live reload could not find .page-layout");
                     }
+                    if (
+                        !fingerprint ||
+                        !nextFingerprint ||
+                        fingerprint.content !== nextFingerprint.content
+                    ) {
+                        window.location.reload();
+                        return;
+                    }
 
                     document.title = parsed.title;
-                    current.innerHTML = next.innerHTML;
+                    if (preserveLineBreaking) {
+                        controller.adoptUnchanged(nextBody);
+                    }
+                    current.replaceChildren.apply(
+                        current,
+                        Array.prototype.slice.call(next.childNodes)
+                    );
                     refreshStylesheets();
-                    enhance();
-                    window.scrollTo({ left: scrollLeft, top: scrollTop, behavior: "instant" });
+                    return enhance({
+                        preserveLineBreaking: preserveLineBreaking
+                    }).then(function () {
+                        if (reloadGeneration === softReloadGeneration) {
+                            window.scrollTo({
+                                left: scrollLeft,
+                                top: scrollTop,
+                                behavior: "instant"
+                            });
+                        }
+                    });
                 })
-                .catch(function () {
+                .catch(function (error) {
+                    if (error && error.name === "AbortError") {
+                        return;
+                    }
                     window.location.reload();
                 });
         }

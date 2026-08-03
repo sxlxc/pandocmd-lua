@@ -1,6 +1,7 @@
 package.path = "lua/?.lua;" .. package.path
 
 local source_lines = require("source-line-preprocess")
+local source_line_annotations = require("source-lines")
 
 local reader_format = "markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex"
 
@@ -433,3 +434,16 @@ assert_equal(
     "after",
   })
 )
+
+local rich_image_doc = pandoc.read(
+  '<!-- pandocmd-source-line:1 -->\n\n![*rich* `alt`](image.png "title")',
+  reader_format
+)
+rich_image_doc.blocks = source_line_annotations.annotate_blocks(nil, rich_image_doc.blocks)
+local rich_image_caption = nil
+rich_image_doc:walk({
+  Image = function(image)
+    rich_image_caption = pandoc.utils.stringify(image.caption)
+  end,
+})
+assert_equal("image caption source-line traversal", rich_image_caption, "rich alt")

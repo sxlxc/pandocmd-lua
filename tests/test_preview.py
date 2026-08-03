@@ -409,11 +409,26 @@ class PandocIntegrationTests(unittest.TestCase):
         html = (self.paths.html / (slug + ".html")).read_text(encoding="utf-8")
         self.assertIn("media/{}/figures/my%20figure.png".format(slug), html)
         self.assertIn("/pandocmd-preview/assets/css/default.css", html)
+        self.assertIn("/pandocmd-preview/assets/css/line-breaking.css?v=", html)
+        self.assertIn("/pandocmd-preview/assets/js/line-breaking.js?v=", html)
 
         watcher = preview.PollingWatcher(result.dependencies)
         self.assertFalse(watcher.changed())
         image.write_bytes(b"second image is different")
         self.assertTrue(watcher.changed())
+
+    def test_runtime_watches_line_breaking_javascript(self):
+        watched = preview.runtime_watch_files(self.paths)
+        self.assertIn(
+            preview.canonical_path(self.paths.assets / "js" / "line-breaking.js"),
+            watched,
+        )
+        self.assertIn(
+            preview.canonical_path(
+                self.paths.assets / "js" / "vendor" / "typeset" / "linebreak.js"
+            ),
+            watched,
+        )
 
     def test_remote_and_raw_html_images_remain_external(self):
         project = self.project()

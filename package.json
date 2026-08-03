@@ -1,0 +1,14 @@
+{
+  "name": "pandocmd-lua-browser-tests",
+  "private": true,
+  "scripts": {
+    "benchmark-browser": "PANDOCMD_BENCHMARK=1 playwright test tests/browser/benchmark.spec.js --project=chromium",
+    "lint": "eslint assets/js/line-breaking.js tests/browser",
+    "test-browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.54.2",
+    "eslint": "8.57.1",
+    "eslint-config-google": "0.14.0"
+  }
+}
