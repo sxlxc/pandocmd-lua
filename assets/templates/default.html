@@ -3,126 +3,67 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta http-equiv="x-ua-compatible" content="ie=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="googlebot" content="noindex" />
     <title>$title$</title>
     <link rel="icon" href="$asset-base$/favicon.svg" type="image/svg+xml" sizes="any" />
     <link rel="preload" href="$asset-base$/fonts/Merriweather-Variable.woff2" as="font" type="font/woff2" crossorigin />
     $stylesheets$
-    <link rel="stylesheet" href="$asset-base$/katex/katex.min.css" />
-    <script defer src="$asset-base$/katex/katex.min.js"></script>
+    $math-assets$
     $line-breaking-assets$
     $page-runtime-assets$
 </head>
 
 <body class="click-open-notes">
     <nav class="top-controls no-print" aria-label="Page controls">
-        <button class="nav-button" type="button" id="toggle-left-margin" aria-controls="contents-big" aria-pressed="true">Contents</button>
-        <button class="nav-button" type="button" id="toggle-sidenotes" aria-pressed="false">Sidenotes</button>
+        <button class="nav-button" type="button" id="toggle-left-margin" data-body-class="hide-left-margin" aria-controls="contents-big" aria-pressed="true">Contents</button>
+        <button class="nav-button" type="button" id="toggle-sidenotes" data-body-class="click-open-notes" aria-pressed="false">Sidenotes</button>
     </nav>
     <script>
         (function () {
-            var toggles = [
-                ["toggle-left-margin", "hide-left-margin"],
-                ["toggle-sidenotes", "click-open-notes"]
-            ];
-            var storageKey = "pandocmd:control-state:" + window.location.pathname;
-            var activeClasses = readControlState();
-
-            toggles.forEach(function (toggle) {
-                var button = document.getElementById(toggle[0]);
-                var className = toggle[1];
-
-                document.body.classList.toggle(className, Boolean(activeClasses[className]));
-
-                if (!button) {
+            try {
+                var saved = window.localStorage.getItem(
+                    "pandocmd:control-state:" + window.location.pathname
+                );
+                if (saved === null) {
                     return;
                 }
-
-                function sync() {
-                    button.setAttribute("aria-pressed", String(!document.body.classList.contains(className)));
-                }
-
-                button.addEventListener("click", function () {
-                    document.body.classList.toggle(className);
-                    writeControlState();
-                    sync();
+                saved = JSON.parse(saved);
+                document.querySelectorAll("[data-body-class]").forEach(function (control) {
+                    var name = control.getAttribute("data-body-class");
+                    document.body.classList.toggle(name, saved.indexOf(name) !== -1);
                 });
-
-                sync();
-            });
-
-            function readControlState() {
-                var state = Object.create(null);
-                var stored;
-
-                try {
-                    stored = window.localStorage.getItem(storageKey);
-                    if (stored === null) {
-                        state["click-open-notes"] = true;
-                        return state;
-                    }
-
-                    JSON.parse(stored).forEach(function (className) {
-                        state[className] = true;
-                    });
-                } catch (error) {
-                    state = Object.create(null);
-                    state["click-open-notes"] = true;
-                }
-
-                return state;
+            } catch (error) {
+                return;
             }
-
-            function writeControlState() {
-                var classes = toggles
-                    .map(function (toggle) {
-                        return toggle[1];
-                    })
-                    .filter(function (className) {
-                        return document.body.classList.contains(className);
-                    });
-
-                try {
-                    window.localStorage.setItem(storageKey, JSON.stringify(classes));
-                } catch (error) {
-                    return;
-                }
-            }
-
         }());
     </script>
     <div class="page-layout">
         <div class="toc">
             <div id="contents-big">
-                <a href="#">
-                    <p class="mini-header">Contents</p>
-                </a>
+                <a class="mini-header" href="#">Contents</a>
                 $toc$
             </div>
         </div>
-        <div class="text-space">
+        <main class="text-space">
             $if(title)$
             <header class="page-header">
                 <h1 class="pagetitle">$title$</h1>
             </header>
             $endif$
-            <main role="main">
-                <article>
-                    <section class="body">
-                        $if(abstract)$
-                        <div class="abstract">
-                            <div class="abstract-title">$abstract-title$</div>
-                            $abstract$
-                        </div>
-                        $endif$
-                        $body$
-                    </section>
-                </article>
-            </main>
+            <article>
+                <section class="body">
+                    $if(abstract)$
+                    <div class="abstract">
+                        <div class="abstract-title">$abstract-title$</div>
+                        $abstract$
+                    </div>
+                    $endif$
+                    $body$
+                </section>
+            </article>
             <footer></footer>
-        </div>
+        </main>
     </div>
 </body>
 

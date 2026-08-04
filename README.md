@@ -194,7 +194,7 @@ pandoc input.md \
 Direct usage retains the existing root-relative asset URLs such as `/css/` and
 `/fonts/`. The preview wrapper parameterizes them as
 `/pandocmd-preview/assets/`; font files are referenced relative to
-`css/fonts.css`, so both layouts work.
+`css/default.css`, so both layouts work.
 
 ## Tests
 

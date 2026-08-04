@@ -5,6 +5,51 @@
   let softReloadAbort = null;
   let softReloadGeneration = 0;
 
+  function initControls() {
+    const controls = Array.prototype.slice.call(
+        document.querySelectorAll('[data-body-class]'),
+    );
+    const storageKey = 'pandocmd:control-state:' + window.location.pathname;
+
+    function sync(control) {
+      control.setAttribute('aria-pressed', String(
+          !document.body.classList.contains(control.dataset.bodyClass),
+      ));
+    }
+
+    function writeState() {
+      const active = controls.map(function(control) {
+        return control.dataset.bodyClass;
+      }).filter(function(name) {
+        return document.body.classList.contains(name);
+      });
+
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(active));
+      } catch (error) {
+        return;
+      }
+    }
+
+    function toggle(event) {
+      const control = event.currentTarget;
+      document.body.classList.toggle(control.dataset.bodyClass);
+      writeState();
+      sync(control);
+    }
+
+    controls.forEach(function(control) {
+      control.addEventListener('click', toggle);
+      sync(control);
+    });
+
+    return function() {
+      controls.forEach(function(control) {
+        control.removeEventListener('click', toggle);
+      });
+    };
+  }
+
   function initKatex() {
     renderKatexMath();
 
@@ -624,6 +669,7 @@
       }
     }
 
+    teardowns.push(initControls());
     teardowns.push(initKatex());
     if (preserveLineBreaking && retainedLineBreaking.length) {
       teardowns.push(retainedLineBreaking[0]);

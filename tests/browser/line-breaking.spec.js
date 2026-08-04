@@ -27,6 +27,38 @@ test.beforeEach(async ({page}) => {
   await ready(page);
 });
 
+test('uses the compact page shell', async ({page}) => {
+  await expect(page.locator(
+      '.page-layout > main.text-space > article > section.body',
+  )).toHaveCount(1);
+  await expect(page.locator('.page-layout main main')).toHaveCount(0);
+  await expect(page.locator('#contents-big > .mini-header')).toHaveCount(1);
+
+  await expect(page.locator(
+      'section.body > .source-line[data-source-line] > p',
+  ).first()).toHaveCount(1);
+});
+
+test('persists page controls through the cached runtime', async ({page}) => {
+  const contents = page.locator('#toggle-left-margin');
+  const sidenotes = page.locator('#toggle-sidenotes');
+
+  await contents.click();
+  await sidenotes.click();
+  await expect(page.locator('body')).toHaveClass(/hide-left-margin/);
+  await expect(page.locator('body')).not.toHaveClass(/click-open-notes/);
+  await expect(contents).toHaveAttribute('aria-pressed', 'false');
+  await expect(sidenotes).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => JSON.parse(window.localStorage.getItem(
+      'pandocmd:control-state:' + window.location.pathname,
+  )))).toEqual(['hide-left-margin']);
+
+  await page.reload();
+  await ready(page);
+  await expect(page.locator('body')).toHaveClass(/hide-left-margin/);
+  await expect(page.locator('body')).not.toHaveClass(/click-open-notes/);
+});
+
 test('lays out eligible prose and preserves semantic elements', async ({page}) => {
   const paragraph = page.locator('section.body p').first();
   await expect(paragraph).toHaveAttribute('data-pandocmd-kp-status', 'laid-out');
@@ -370,6 +402,7 @@ test('loads versioned page/CSS assets and filters reload paths', async ({page}) 
       stylesheetFingerprint: stylesheetFingerprint &&
         stylesheetFingerprint.content,
       pageScript: pageScript && pageScript.src,
+      cssCount: cssLinks.length,
       versionedCss: cssLinks.length > 0 && cssLinks.every(
           (stylesheet) => new URL(stylesheet.href).searchParams.has('v'),
       ),
@@ -384,6 +417,7 @@ test('loads versioned page/CSS assets and filters reload paths', async ({page}) 
   expect(runtime.pageFingerprint).toMatch(/^[a-f0-9]{40}$/);
   expect(runtime.stylesheetFingerprint).toMatch(/^[a-f0-9]{40}$/);
   expect(runtime.pageScript).toMatch(/\/js\/page\.js\?v=[a-f0-9]{40}$/);
+  expect(runtime.cssCount).toBe(2);
   expect(runtime.versionedCss).toBe(true);
   expect(runtime.samePath).toBe(true);
   expect(runtime.otherPath).toBe(false);

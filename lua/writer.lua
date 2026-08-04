@@ -51,6 +51,26 @@ local function meta_inline_html(value)
   return util.inline_html(meta_inlines(value))
 end
 
+local function has_math(doc)
+  local found = false
+  doc:walk({
+    Math = function(math)
+      found = true
+      return math
+    end,
+  })
+  return found
+end
+
+local function math_assets(meta)
+  local asset_base = stringify(meta["pandocmd-asset-base-url"] or ""):gsub("/+$", "")
+  return '<link rel="stylesheet" href="'
+    .. util.escape_html(asset_base .. "/katex/katex.min.css")
+    .. '" />\n<script defer src="'
+    .. util.escape_html(asset_base .. "/katex/katex.min.js")
+    .. '"></script>'
+end
+
 local function template_path(meta)
   local from_env = os.getenv("PANDOCMD_TEMPLATE")
   if from_env and from_env ~= "" then
@@ -178,6 +198,7 @@ end
 
 function Writer(doc, opts)
   local custom_section_numbers = doc.meta["pandocmd-custom-section-numbers"] == true
+  local include_math = has_math(doc)
   local html_opts = pandoc.WriterOptions({
     html_math_method = "katex",
     number_sections = not custom_section_numbers,
@@ -206,6 +227,7 @@ function Writer(doc, opts)
   template = replace_field(template, "abstract", abstract)
   template = replace_field(template, "asset-base", asset_base)
   template = replace_field(template, "stylesheets", stylesheets)
+  template = replace_field(template, "math-assets", include_math and math_assets(doc.meta) or "")
   template = replace_field(
     template,
     "line-breaking-assets",

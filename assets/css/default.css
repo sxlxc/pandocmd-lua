@@ -1,3 +1,43 @@
+/* Block display prevents metric-changing font swaps during live reload. */
+@font-face {
+    font-family: "Merriweather";
+    src:
+        local("Merriweather"),
+        local("Merriweather Regular"),
+        url("../fonts/Merriweather-Variable.woff2") format("woff2");
+    font-weight: 300 900;
+    font-style: normal;
+    font-stretch: 75% 125%;
+    font-display: block;
+}
+
+@font-face {
+    font-family: "Merriweather";
+    src:
+        local("Merriweather Italic"),
+        url("../fonts/Merriweather-Italic-Variable.woff2") format("woff2");
+    font-weight: 300 900;
+    font-style: italic;
+    font-stretch: 75% 125%;
+    font-display: block;
+}
+
+@font-face {
+    font-family: "IosevkaC";
+    src: url("../fonts/IosevkaCustom-Regular.woff2") format("woff2");
+    font-weight: normal;
+    font-style: normal;
+    font-display: block;
+}
+
+@font-face {
+    font-family: "IosevkaC";
+    src: url("../fonts/IosevkaCustom-Bold.woff2") format("woff2");
+    font-weight: bold;
+    font-style: normal;
+    font-display: block;
+}
+
 :root {
     --color-text: black;
     --color-tag1: gray;
@@ -450,20 +490,17 @@ section.body .abstract-title + p {
 }
 
 .nav-button {
-    border: none;
-    color: var(--color-text);
-    background: var(--color-button-bg);
-    font-family: inherit;
-    font-size: 0.85rem;
-}
-
-.nav-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 2.5rem;
     min-height: var(--controls-height);
     padding: 0 0.5rem;
+    border: none;
+    color: var(--color-text);
+    background: var(--color-button-bg);
+    font-family: inherit;
+    font-size: 0.85rem;
     text-decoration: none;
     cursor: pointer;
     user-select: none;
@@ -654,6 +691,7 @@ code {
     }
 
     #contents-big .mini-header {
+        display: block;
         margin: 0;
         font-variant: small-caps;
         font-weight: 700;
@@ -775,5 +813,335 @@ body.click-open-notes .page-layout label.margin-toggle {
     .page-layout {
         margin: auto;
         padding-top: 0;
+    }
+}
+
+/* Syntax highlighting */
+code.sourceCode {
+    background: inherit;
+}
+
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+code span.al { color: #CB4B16; font-weight: bold; }
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; }
+code span.at { color: #7d9029; }
+code span.bn { color: #D33682; }
+code span.cf { color: #5F8700; font-weight: bold; }
+code span.ch { color: #16801a; }
+code span.cn { color: #880000; }
+code span.co { color: #93A1A1; font-style: italic; }
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; }
+code span.do { color: #ba2121; font-style: italic; }
+code span.dt { background-color: #f8edff; }
+code span.dv { color: #D33682; }
+code span.er { color: #D30102; font-weight: bold; }
+code span.fl { color: #D33682; }
+code span.im { color: #D70000; }
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; }
+code span.kw { font-weight: bold; }
+code span.op { font-weight: bold; }
+code span.ot { font-weight: bold; }
+code span.pp { color: #bc7a00; }
+code span.sc { color: #4070a0; }
+code span.ss { color: #bb6688; }
+code span.st { color: #16801a; }
+code span.va { color: #19177c; }
+code span.vs { color: #4070a0; }
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; }
+
+/* Theorems, algorithms, and references */
+.theorem-environment {
+    margin: 1em 0;
+    font-style: italic;
+}
+
+.algorithm {
+    position: relative;
+    container-type: inline-size;
+    margin: 1em 0;
+    text-align: center;
+}
+
+.algo-box {
+    display: inline-block;
+    box-sizing: border-box;
+    width: 85%;
+    max-width: 85%;
+    padding: 0.75em 1em;
+    border: 1px solid currentColor;
+    overflow-wrap: break-word;
+    text-align: left;
+    white-space: normal;
+}
+
+.algo-box > p {
+    margin: 0;
+}
+
+.algo-box > .source-line-link {
+    top: calc(0.75em + 1px);
+}
+
+.algo-box > .source-line > .source-line-link {
+    right: calc(100% + var(--source-line-gap) + 7.5cqw + 1em + 1px);
+}
+
+.algo-line {
+    display: block;
+    padding-left: calc(var(--algo-indent, 0rem) + 2rem);
+    text-indent: -2rem;
+}
+
+.algorithm > p > .algo-caption {
+    display: block;
+    margin-top: 0.4em;
+    text-align: center;
+}
+
+.theorem-header {
+    font-style: normal;
+    font-weight: bold;
+}
+
+.theorem-header .index::before {
+    content: ' ';
+}
+
+.theorem-header .name::before {
+    content: ' (';
+}
+
+.theorem-header .name::after {
+    content: ')';
+}
+
+.theorem-header::after {
+    content: '.\2002\2002';
+}
+
+.theorem-header + p {
+    display: inline;
+}
+
+.Proof .type {
+    font-style: italic;
+    font-weight: normal;
+}
+
+.Proof {
+    position: relative;
+    font-style: normal;
+}
+
+.Proof::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    content: '∎';
+}
+
+.Proof span.theorem-header span.name {
+    font-style: italic;
+    font-weight: normal;
+}
+
+.Proof span.theorem-header span.name::before,
+.Proof span.theorem-header span.name::after {
+    content: ' ';
+}
+
+table.postindex {
+    width: 100%;
+}
+
+table.postindex cite {
+    font-style: normal;
+}
+
+table.postindex td.right {
+    width: 11ex;
+    text-align: right;
+}
+
+.header-section-number {
+    margin-right: 10px;
+}
+
+.header-section-number::after {
+    content: '.';
+}
+
+.csl-entry {
+    display: table;
+    width: 100%;
+    table-layout: auto;
+}
+
+.csl-left-margin {
+    display: table-cell;
+    width: 1px;
+    padding-right: 0.5em;
+    white-space: nowrap;
+}
+
+.csl-right-inline {
+    display: table-cell;
+}
+
+.csl-right-inline a {
+    word-break: break-all;
+}
+
+/* Sidenotes; adapted from Tufte CSS via Tony Zorman's stylesheet. */
+body {
+    counter-reset: sidenote-counter;
+}
+
+.sidenote,
+.marginnote,
+.marginnote-left {
+    position: relative;
+    float: right;
+    clear: right;
+    width: 40%;
+    margin-top: 0.3rem;
+    margin-right: -45%;
+    margin-bottom: 0;
+    font-size: 0.8em;
+    line-height: 1.2;
+    text-align: left;
+    vertical-align: baseline;
+}
+
+@media (max-width: 1199px) {
+    .sidenote,
+    .marginnote,
+    .marginnote-left {
+        width: 33%;
+        margin-right: -40%;
+    }
+}
+
+.marginnote-left {
+    float: left;
+    clear: left;
+    width: 25%;
+    margin-left: -32%;
+    text-align: right;
+}
+
+@media (max-width: 1349px) or ((min-width: 1367px) and (max-width: 1620px)) {
+    .marginnote-left {
+        width: 30%;
+        margin-left: -33%;
+    }
+}
+
+.sidenote code {
+    font-size: 0.94em;
+}
+
+div .marginnote pre,
+div .sidenote pre {
+    overflow-y: hidden;
+}
+
+.sidenote-number {
+    color: var(--color-link);
+    counter-increment: sidenote-counter;
+}
+
+.sidenote-number::after,
+.sidenote::before {
+    position: relative;
+    vertical-align: baseline;
+}
+
+.sidenote-number::after {
+    top: -0.5rem;
+    font-size: 0.8rem;
+    content: counter(sidenote-counter);
+}
+
+.sidenote::before {
+    position: absolute;
+    top: -0.55rem;
+    right: calc(100% + 0.5em);
+    font-size: 0.8rem;
+    content: counter(sidenote-counter) " ";
+}
+
+.sidenote p {
+    margin: 1em 0;
+}
+
+.sidenote p:first-child {
+    margin-top: 0;
+}
+
+.sidenote p:last-child {
+    margin-bottom: 0;
+}
+
+input.margin-toggle {
+    display: none;
+}
+
+label.sidenote-number {
+    display: inline-block;
+    max-height: 2rem;
+}
+
+label.margin-toggle:not(.sidenote-number) {
+    display: none;
+}
+
+.iframe-wrapper {
+    position: relative;
+    height: 0;
+    padding-top: 25px;
+    padding-bottom: 56.25%;
+}
+
+.iframe-wrapper iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+@media (max-width: 1199px) {
+    label.margin-toggle:not(.sidenote-number) {
+        display: inline;
+    }
+
+    .sidenote,
+    .marginnote,
+    .marginnote-left {
+        display: none;
+    }
+
+    .margin-toggle,
+    .sidenote-number::after {
+        color: var(--color-link);
+        text-decoration: none;
+    }
+
+    .margin-toggle:checked + .sidenote,
+    .margin-toggle:checked + .marginnote,
+    .margin-toggle:checked + .marginnote-left {
+        position: relative;
+        left: 1rem;
+        display: block;
+        float: left;
+        clear: both;
+        width: 95%;
+        margin: 1rem 2.5%;
+        text-align: left;
+    }
+
+    label {
+        cursor: pointer;
     }
 }

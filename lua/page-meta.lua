@@ -10,11 +10,7 @@ end
 
 local function stylesheet_tags(meta)
   local css = {
-    "css/fonts.css",
     "css/default.css",
-    "css/pygentize.css",
-    "css/chao-theorems.css",
-    "css/sidenotes.css",
   }
   local pandocmd = pandoc.utils.type(meta.pandocmd) == "table" and meta.pandocmd or {}
   local configured_css = pandocmd.css

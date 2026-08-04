@@ -586,6 +586,7 @@ class PandocIntegrationTests(unittest.TestCase):
         self.assertIn("/pandocmd-preview/assets/css/default.css", html)
         self.assertIn("/pandocmd-preview/assets/css/line-breaking.css?v=", html)
         self.assertIn("/pandocmd-preview/assets/js/line-breaking.js?v=", html)
+        self.assertNotIn("/pandocmd-preview/assets/katex/", html)
 
         watcher = preview.PollingWatcher(result.dependencies)
         self.assertFalse(watcher.changed())
@@ -604,6 +605,17 @@ class PandocIntegrationTests(unittest.TestCase):
             ),
             watched,
         )
+
+    def test_math_loads_katex_assets(self):
+        project = self.project()
+        source = project / "math.md"
+        source.write_text("Inline math $x+y$.\n", encoding="utf-8")
+        slug = "math-assets"
+        result = preview.build_preview(self.paths, source, slug)
+        self.assertTrue(result.succeeded, result.diagnostics)
+        html = (self.paths.html / (slug + ".html")).read_text(encoding="utf-8")
+        self.assertIn("/pandocmd-preview/assets/katex/katex.min.css", html)
+        self.assertIn("/pandocmd-preview/assets/katex/katex.min.js", html)
 
     def test_remote_and_raw_html_images_remain_external(self):
         project = self.project()
