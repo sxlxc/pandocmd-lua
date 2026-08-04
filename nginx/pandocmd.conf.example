@@ -1,0 +1,68 @@
+# pandocmd live preview — replace __PANDOCMD_PREVIEW_HOME__ with the absolute
+# path to the installed runtime (normally /Users/you/.pandocmd-preview), copy
+# this file into nginx's servers/ include directory, then test and reload nginx.
+#
+# This remains the default host on port 80 so loopback and Tailscale addresses
+# reach the same previews. Only the live-reload WebSocket is proxied; nginx
+# serves installed assets and generated HTML/media directly.
+server {
+    listen       80 default_server;
+    server_name  127.0.0.1;
+
+    allow 127.0.0.1;
+    allow ::1;
+    allow 100.64.0.0/10;
+    allow fd7a:115c:a1e0::/48;
+    deny all;
+
+    location = /pandocmd-preview/livereload {
+        proxy_pass http://127.0.0.1:35729;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_buffering off;
+        proxy_read_timeout 1d;
+        proxy_send_timeout 1d;
+    }
+
+    # Generated files are replaced after a complete successful build. Never
+    # cache them, including copied figures used by soft reload.
+    location ^~ /pandocmd-preview/media/ {
+        alias "__PANDOCMD_PREVIEW_HOME__/html/media/";
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }
+
+    location ~ ^/pandocmd-preview/(?<pandocmd_preview_file>[^/]+\.html)$ {
+        alias "__PANDOCMD_PREVIEW_HOME__/html/$pandocmd_preview_file";
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }
+
+    # Fonts and KaTeX are immutable for the lifetime of an installation.
+    location ^~ /pandocmd-preview/assets/fonts/ {
+        alias "__PANDOCMD_PREVIEW_HOME__/assets/fonts/";
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+    }
+
+    location ^~ /pandocmd-preview/assets/katex/ {
+        alias "__PANDOCMD_PREVIEW_HOME__/assets/katex/";
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+    }
+
+    location = /pandocmd-preview/assets/favicon.svg {
+        alias "__PANDOCMD_PREVIEW_HOME__/assets/favicon.svg";
+        gzip_static on;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+    }
+
+    # CSS and the remaining installed assets revalidate so an installation
+    # update is visible on the next reload.
+    location ^~ /pandocmd-preview/assets/ {
+        alias "__PANDOCMD_PREVIEW_HOME__/assets/";
+        add_header Cache-Control "no-cache" always;
+    }
+}

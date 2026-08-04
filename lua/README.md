@@ -31,3 +31,12 @@ Asset resolution uses this order:
 2. `HAKYLL_PANDOCMD_ASSETS`
 3. `pandocmd.assets-dir` relative to the source file
 4. `assets` relative to the current directory
+
+The generated public asset URL is independent of that filesystem path. It uses
+`PANDOCMD_ASSET_BASE_URL`, then `pandocmd.asset-base-url`, and otherwise retains
+the direct-build root-relative default. The preview CLI sets the base to
+`/pandocmd-preview/assets`.
+
+The final `media.lua` pass is inert for direct builds. When the preview CLI sets
+its staging environment, the pass copies local Pandoc `Image` targets, rewrites
+their URLs, and emits the dependency manifest consumed by the Python watcher.

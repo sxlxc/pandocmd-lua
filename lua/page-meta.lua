@@ -3,6 +3,11 @@ local references = require("references")
 
 local M = {}
 
+local function asset_url(meta, path)
+  local base = util.stringify(meta["pandocmd-asset-base-url"] or ""):gsub("/+$", "")
+  return base .. "/" .. path:gsub("^/", "")
+end
+
 local function stylesheet_tags(meta)
   local css = {
     "css/fonts.css",
@@ -26,7 +31,8 @@ local function stylesheet_tags(meta)
     if not util.starts_with(path, "css/") then
       path = "css/" .. path:match("[^/\\]+$")
     end
-    table.insert(lines, '<link rel="stylesheet" href="/' .. util.escape_html(path:gsub("\\", "/")) .. '" />')
+    table.insert(lines, '<link rel="stylesheet" href="'
+      .. util.escape_html(asset_url(meta, path:gsub("\\", "/"))) .. '" />')
   end
   return table.concat(lines, "\n")
 end

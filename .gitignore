@@ -1,5 +1,7 @@
 test/
 plan.md
 assets/preview/
+/html/
+/state/
 .DS_Store
 __pycache__/

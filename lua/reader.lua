@@ -200,6 +200,18 @@ local function resolve_assets_dir(source_name, meta)
   return "assets"
 end
 
+local function resolve_asset_base_url(meta)
+  local from_env = os.getenv("PANDOCMD_ASSET_BASE_URL")
+  if from_env and from_env ~= "" then
+    return from_env:gsub("/+$", "")
+  end
+  local configured = util.map_field(meta.pandocmd, "asset-base-url")
+  if configured then
+    return stringify(configured):gsub("/+$", "")
+  end
+  return ""
+end
+
 local function render_extra_macros(math_meta)
   local lines = {}
   if pandoc.utils.type(math_meta) ~= "table" then
@@ -276,5 +288,6 @@ function Reader(input, reader_options)
 
   doc.meta["pandocmd-source-file"] = absolute_path(source)
   doc.meta["pandocmd-assets-dir"] = assets_dir
+  doc.meta["pandocmd-asset-base-url"] = resolve_asset_base_url(meta)
   return doc
 end

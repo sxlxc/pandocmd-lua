@@ -7,11 +7,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="googlebot" content="noindex" />
     <title>$title$</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
-    <link rel="preload" href="/fonts/Merriweather-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="icon" href="$asset-base$/favicon.svg" type="image/svg+xml" sizes="any" />
+    <link rel="preload" href="$asset-base$/fonts/Merriweather-Variable.woff2" as="font" type="font/woff2" crossorigin />
     $stylesheets$
-    <link rel="stylesheet" href="/katex/katex.min.css" />
-    <script defer src="/katex/katex.min.js"></script>
+    <link rel="stylesheet" href="$asset-base$/katex/katex.min.css" />
+    <script defer src="$asset-base$/katex/katex.min.js"></script>
 </head>
 
 <body class="click-open-notes">
@@ -694,6 +694,45 @@
         // full navigation, so the <head> (fonts, KaTeX runtime, stylesheets)
         // stays loaded and the page does not flash or reflow. Scroll position is
         // preserved and the content enhancers are re-run on the new markup.
+        function refreshStylesheets() {
+            Array.prototype.slice.call(
+                document.querySelectorAll('link[rel="stylesheet"]')
+            ).forEach(function (stylesheet) {
+                var pathname;
+                var replacement;
+
+                try {
+                    pathname = new URL(stylesheet.href, window.location.href).pathname;
+                } catch (error) {
+                    return;
+                }
+
+                if (pathname.indexOf("/css/") === -1) {
+                    return;
+                }
+
+                if (stylesheet.hasAttribute("data-pandocmd-refreshing")) {
+                    return;
+                }
+
+                stylesheet.setAttribute("data-pandocmd-refreshing", "");
+                replacement = stylesheet.cloneNode(true);
+                replacement.addEventListener("load", function () {
+                    replacement.removeAttribute("data-pandocmd-refreshing");
+                    if (stylesheet.parentNode) {
+                        stylesheet.parentNode.removeChild(stylesheet);
+                    }
+                });
+                replacement.addEventListener("error", function () {
+                    stylesheet.removeAttribute("data-pandocmd-refreshing");
+                    if (replacement.parentNode) {
+                        replacement.parentNode.removeChild(replacement);
+                    }
+                });
+                stylesheet.parentNode.insertBefore(replacement, stylesheet.nextSibling);
+            });
+        }
+
         function softReload() {
             var scrollLeft = window.scrollX;
             var scrollTop = window.scrollY;
@@ -717,6 +756,7 @@
 
                     document.title = parsed.title;
                     current.innerHTML = next.innerHTML;
+                    refreshStylesheets();
                     enhance();
                     window.scrollTo({ left: scrollLeft, top: scrollTop, behavior: "instant" });
                 })

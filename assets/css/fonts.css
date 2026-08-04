@@ -13,7 +13,7 @@
   src:
     local("Merriweather"),
     local("Merriweather Regular"),
-    url("/fonts/Merriweather-Variable.woff2") format("woff2");
+    url("../fonts/Merriweather-Variable.woff2") format("woff2");
   font-weight: 300 900;
   font-style: normal;
   font-stretch: 75% 125%;
@@ -24,7 +24,7 @@
   font-family: "Merriweather";
   src:
     local("Merriweather Italic"),
-    url("/fonts/Merriweather-Italic-Variable.woff2") format("woff2");
+    url("../fonts/Merriweather-Italic-Variable.woff2") format("woff2");
   font-weight: 300 900;
   font-style: italic;
   font-stretch: 75% 125%;
@@ -33,7 +33,7 @@
 
 @font-face {
   font-family: "IosevkaC";
-  src: url("/fonts/IosevkaCustom-Regular.woff2") format("woff2");
+  src: url("../fonts/IosevkaCustom-Regular.woff2") format("woff2");
   font-weight: normal;
   font-style: normal;
   font-display: block;
@@ -41,7 +41,7 @@
 
 @font-face {
   font-family: "IosevkaC";
-  src: url("/fonts/IosevkaCustom-Bold.woff2") format("woff2");
+  src: url("../fonts/IosevkaCustom-Bold.woff2") format("woff2");
   font-weight: bold;
   font-style: normal;
   font-display: block;
