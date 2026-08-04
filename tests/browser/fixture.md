@@ -58,3 +58,23 @@ its independently changing width.</span>
 <div class="csl-left-margin">[18] </div><div class="csl-right-inline"><span>A. Author, A deliberately descriptive reference title with enough words to wrap over several justified lines, <em>Journal of Browser Typography</em>. 42 (2026) 101–120 <a href="https://doi.org/10.1000/pandocmd.123456789">10.1000/pandocmd.123456789</a>.</span></div>
 </div>
 </div>
+
+::: {.algo #alg:source-line-fixture title="Parameter-free truncation packing."}
+$\textsc{ParameterFree}(M, w, k)$:
+  collapse the parallel classes of $M$
+  if $E_0:=\{e:w_e=0\}$ has $r(E\setminus E_0)\le r-k$, return $E\setminus\operatorname{cl}(E\setminus E_0)$, uncollapsed
+  form the closure arm, and one packing arm for each depth $h\in [r-k-1]$.
+  for budget $B=1,2,4,\dots$
+    run every arm from scratch for at most $B$ steps
+    if some arm halted, return its answer, uncollapsed
+
+  the closure arm:
+    enumerate the closures of independent sets of size at most $r-k$, recording the complements that drop the rank by at least $k$
+    halt with the lightest recorded $k$-cocycle
+
+  the packing arm at depth $h$:
+    maintain the witness, the lightest $k$-cocycle found, of weight $\mu$, initially $\infty$
+    for cap $s=k,k+1,\dots,r-h-1$
+      run $\textsc{TruncationPacking}(M,w,k,s,h)$, solving each residual of rank at least $k$ by $\textsc{ParameterFree}$
+      if $(s+1)\,\sigma(T_h(M))>\mu$, halt with the witness
+:::

@@ -172,6 +172,31 @@ test('never tokenizes source-line links as prose', async ({page}) => {
   expect(Math.abs(rightEdges.box - rightEdges.text)).toBeLessThanOrEqual(0.5);
 });
 
+test('aligns algorithm source-line markers with their paragraphs', async ({page}) => {
+  const geometry = await page.locator('#alg\\:source-line-fixture').evaluate(
+      (algorithm) => Array.from(algorithm.querySelectorAll(
+          '.algo-box .source-line-link',
+      )).map((marker) => {
+        const owner = marker.parentElement;
+        const line = owner.querySelector(':scope > p > .algo-line');
+        const markerRect = marker.getBoundingClientRect();
+        const lineRect = line.getBoundingClientRect();
+        return {
+          markerRight: markerRect.right,
+          markerTop: markerRect.top,
+          lineTop: lineRect.top,
+        };
+      }),
+  );
+
+  expect(geometry).toHaveLength(3);
+  expect(Math.max(...geometry.map((item) => item.markerRight)) -
+    Math.min(...geometry.map((item) => item.markerRight))).toBeLessThanOrEqual(0.5);
+  for (const item of geometry) {
+    expect(Math.abs(item.markerTop - item.lineTop)).toBeLessThanOrEqual(0.5);
+  }
+});
+
 test('calibrates every full prose line to the same right edge', async ({page}) => {
   const geometry = await page.evaluate(async () => {
     const paragraph = document.createElement('p');

@@ -5,6 +5,7 @@
 
 .algorithm {
   position: relative;
+  container-type: inline-size;
   margin: 1em 0;
   text-align: center;
 }
@@ -23,6 +24,14 @@
 
 .algo-box > p {
   margin: 0;
+}
+
+.algo-box > .source-line-link {
+  top: calc(0.75em + 1px);
+}
+
+.algo-box > .source-line > .source-line-link {
+  right: calc(100% + var(--source-line-gap) + 7.5cqw + 1em + 1px);
 }
 
 .algo-line {
