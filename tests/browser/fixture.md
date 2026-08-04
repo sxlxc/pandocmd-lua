@@ -35,6 +35,18 @@ This run contains a long URL
 $\frac{\sum_{i=1}^{n} i}{1+x}$ and enough surrounding prose to wrap.
 :::
 
+::: {#katex-centering-fixture}
+This justified paragraph contains the asymmetric inline fraction
+$\frac{x}{1+y+z}$ and enough surrounding prose to exercise inherited text
+alignment while preserving KaTeX's own centering.
+
+This paragraph introduces a display equation
+$$
+\frac{1}{a+b+c+d}=q
+$$
+and continues afterward so the paragraph itself remains an eligible prose run.
+:::
+
 The expressions $a = b + c + d + e + f$ and $x \nobreak = y$ and
 $p \allowbreak q$ exercise KaTeX base groups.
 

@@ -540,3 +540,51 @@ test('uses KaTeX base groups as visible math boxes', async ({page}) => {
   expect(allowBreak.baseClasses.flat()).toHaveLength(0);
   expect(structures.every((item) => item.mathmlHidden)).toBe(true);
 });
+
+test('preserves KaTeX display and fraction centering', async ({page}) => {
+  const geometry = await page.evaluate(() => {
+    const fixture = document.querySelector('#katex-centering-fixture');
+    const displayMath = fixture.querySelector('.math.display');
+    const display = displayMath.querySelector('.katex-display');
+    const displayKatex = display.querySelector(':scope > .katex');
+    const bases = Array.from(display.querySelectorAll('.katex-html > .base'));
+    const baseRects = bases.map((base) => base.getBoundingClientRect());
+    const displayRect = display.getBoundingClientRect();
+
+    const inlineMath = fixture.querySelector('.math.inline');
+    const fraction = inlineMath.querySelector('.mfrac');
+    const fractionRect = fraction.getBoundingClientRect();
+    const rows = Array.from(fraction.querySelectorAll(
+        ':scope > .vlist-t > .vlist-r:first-child > .vlist > span > .sizing',
+    ));
+
+    return {
+      displayInJustifiedRun: display.closest(
+          '.pandocmd-kp-active, .pandocmd-kp-fallback',
+      ) !== null,
+      displayLastAlignment: getComputedStyle(displayKatex).textAlignLast,
+      displayCenterError: Math.abs(
+          (Math.min(...baseRects.map((rect) => rect.left)) +
+           Math.max(...baseRects.map((rect) => rect.right))) / 2 -
+          (displayRect.left + displayRect.right) / 2,
+      ),
+      fractionInActiveRun: fraction.closest('.pandocmd-kp-active') !== null,
+      fractionLastAlignment: getComputedStyle(fraction).textAlignLast,
+      rowCenterErrors: rows.map((row) => {
+        const rowRect = row.getBoundingClientRect();
+        return Math.abs(
+            (rowRect.left + rowRect.right) / 2 -
+            (fractionRect.left + fractionRect.right) / 2,
+        );
+      }),
+    };
+  });
+
+  expect(geometry.displayInJustifiedRun).toBe(true);
+  expect(geometry.displayLastAlignment).toBe('auto');
+  expect(geometry.displayCenterError).toBeLessThanOrEqual(0.5);
+  expect(geometry.fractionInActiveRun).toBe(true);
+  expect(geometry.fractionLastAlignment).toBe('auto');
+  expect(geometry.rowCenterErrors).toHaveLength(2);
+  expect(Math.max(...geometry.rowCenterErrors)).toBeLessThanOrEqual(0.5);
+});

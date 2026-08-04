@@ -41,6 +41,11 @@
     text-align-last: left;
 }
 
+.pandocmd-kp-active .katex,
+.pandocmd-kp-fallback .katex {
+    text-align-last: auto;
+}
+
 @media print {
     .pandocmd-kp-active {
         text-align: justify;
