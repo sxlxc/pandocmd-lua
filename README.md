@@ -48,7 +48,10 @@ Reinstalling replaces `assets/`, `bin/`, `lua/`, and `nginx/` from a clean
 staging directory. It preserves generated `html/` and all `state/`. Only
 declared runtime files are copied, so repository `.DS_Store` files, caches,
 untracked files, and the ignored legacy `assets/preview/` directory cannot leak
-into the installation.
+into the installation. During staging, the standard-library installer creates
+deterministic gzip sidecars for JavaScript, CSS, and SVG assets while retaining
+the original files and their useful timestamps. No JavaScript toolchain is
+required.
 
 The installer removes the old `ppl` and Fish-completion symlinks only when they
 point to this project. It never removes unrelated files. Existing ignored HTML
@@ -98,9 +101,12 @@ It exposes only these routes:
 - `/pandocmd-preview/livereload` proxies WebSocket traffic to the persistent
   loopback daemon on port 35729.
 
-Fonts and KaTeX receive immutable caching, CSS revalidates, and generated HTML
-and media use `no-store`. The CLI always prints a localhost URL. A remote
-Tailscale user can substitute the machine's Tailscale IP address or hostname.
+Fonts, KaTeX, and content-versioned CSS/JavaScript receive immutable caching;
+unversioned assets revalidate, and generated HTML and media use `no-store`.
+nginx serves the precompressed JavaScript, CSS, and SVG sidecars when a client
+accepts gzip, while retaining the originals as the fallback. The CLI always
+prints a localhost URL. A remote Tailscale user can substitute the machine's
+Tailscale IP address or hostname.
 
 Run the read-only configuration checks after nginx is configured:
 

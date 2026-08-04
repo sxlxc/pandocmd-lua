@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import gzip
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -173,6 +174,141 @@ class ArgumentTests(unittest.TestCase):
         )
 
 
+class PollingWatcherTests(unittest.TestCase):
+    def test_low_latency_poll_and_debounce_intervals(self):
+        self.assertEqual(preview.POLL_INTERVAL, 0.05)
+        self.assertEqual(preview.DEBOUNCE_SECONDS, 0.10)
+
+    def test_changed_paths_reports_exact_canonical_paths_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            changed_file = root / "changed.md"
+            removed_file = root / "removed.css"
+            unchanged_file = root / "unchanged.js"
+            changed_file.write_text("before", encoding="utf-8")
+            removed_file.write_text("remove me", encoding="utf-8")
+            unchanged_file.write_text("same", encoding="utf-8")
+            watcher = preview.PollingWatcher(
+                [changed_file, removed_file, unchanged_file]
+            )
+
+            changed_file.write_text("after with a different size", encoding="utf-8")
+            removed_file.unlink()
+
+            self.assertEqual(
+                watcher.changed_paths(),
+                {
+                    preview.canonical_path(changed_file),
+                    preview.canonical_path(removed_file),
+                },
+            )
+            self.assertEqual(watcher.changed_paths(), set())
+
+    def test_changed_boolean_api_remains_compatible(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            watched = Path(temporary) / "watched.md"
+            watched.write_text("before", encoding="utf-8")
+            watcher = preview.PollingWatcher([watched])
+
+            self.assertFalse(watcher.changed())
+            watched.write_text("after with a different size", encoding="utf-8")
+            self.assertTrue(watcher.changed())
+            self.assertFalse(watcher.changed())
+
+    def test_clean_copy_replacement_with_same_mtime_and_size_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            watched = Path(temporary) / "asset.css"
+            incoming = Path(temporary) / "incoming.css"
+            watched.write_text("body { color: black; }\n", encoding="utf-8")
+            watcher = preview.PollingWatcher([watched])
+            original_signature = preview._file_signature(watched)
+
+            shutil.copy2(watched, incoming)
+            self.assertNotEqual(os.stat(watched).st_ino, os.stat(incoming).st_ino)
+            os.replace(incoming, watched)
+
+            self.assertEqual(preview._file_signature(watched), original_signature)
+            self.assertEqual(watcher.changed_paths(), set())
+
+
+class LiveReloadSubscriptionTests(unittest.TestCase):
+    def client_for_hello(self, message):
+        handler = mock.Mock()
+        handler.connection = mock.Mock()
+        client = preview.LiveReloadClient(handler)
+        client.send_text = mock.Mock(return_value=True)
+        client.close = mock.Mock()
+        client._handle_message(message)
+        response = json.loads(client.send_text.call_args.args[0])
+        self.assertEqual(response["command"], "hello")
+        client.send_text.reset_mock()
+        return client
+
+    def test_hello_captures_only_a_valid_preview_pathname(self):
+        client = self.client_for_hello({
+            "command": "hello",
+            "protocols": [preview.LIVE_RELOAD_PROTOCOL],
+            "path": "/pandocmd-preview/Project-%CE%A9.html",
+        })
+        self.assertTrue(client.subscription_requested)
+        self.assertEqual(
+            client.subscription_path,
+            "/pandocmd-preview/Project-Ω.html",
+        )
+        self.assertTrue(client.accepts_reload("/pandocmd-preview/Project-Ω.html"))
+        self.assertFalse(client.accepts_reload("/pandocmd-preview/Other.html"))
+
+        for invalid in (
+            "https://example.com/pandocmd-preview/Project-Ω.html",
+            "/pandocmd-preview/nested/Project-Ω.html",
+            "/pandocmd-preview/Project-Ω.html?reload=1",
+            "/outside/Project-Ω.html",
+        ):
+            with self.subTest(invalid=invalid):
+                invalid_client = self.client_for_hello({
+                    "command": "hello",
+                    "path": invalid,
+                })
+                self.assertTrue(invalid_client.subscription_requested)
+                self.assertIsNone(invalid_client.subscription_path)
+                self.assertFalse(
+                    invalid_client.accepts_reload("/pandocmd-preview/Project-Ω.html")
+                )
+
+    def test_hub_filters_subscribers_and_broadcasts_to_legacy_clients(self):
+        matching = self.client_for_hello({
+            "command": "hello",
+            "path": "/pandocmd-preview/Project-%CE%A9.html",
+        })
+        other = self.client_for_hello({
+            "command": "hello",
+            "path": "/pandocmd-preview/Other.html",
+        })
+        invalid = self.client_for_hello({
+            "command": "hello",
+            "path": "/pandocmd-preview/nested/Project-Ω.html",
+        })
+        legacy = self.client_for_hello({
+            "command": "hello",
+            "protocols": [preview.LIVE_RELOAD_PROTOCOL],
+        })
+        hub = preview.LiveReloadHub()
+        for client in (matching, other, invalid, legacy):
+            hub.register(client)
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            delivered = hub.broadcast_reload("/pandocmd-preview/Project-Ω.html")
+
+        self.assertEqual(delivered, 2)
+        matching.send_text.assert_called_once()
+        legacy.send_text.assert_called_once()
+        other.send_text.assert_not_called()
+        invalid.send_text.assert_not_called()
+        message = json.loads(matching.send_text.call_args.args[0])
+        self.assertEqual(message["command"], "reload")
+        self.assertEqual(message["path"], "/pandocmd-preview/Project-Ω.html")
+
+
 class RegistryHealthTests(unittest.TestCase):
     def test_health_response_matches_recorded_daemon(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -277,6 +413,45 @@ class RegistryHealthTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
+    def test_install_precompresses_text_assets_exactly_and_deterministically(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            destination = root / "runtime"
+            bin_dir = root / "bin"
+
+            preview.install_runtime(REPOSITORY, destination, bin_dir, user_home=root)
+            sources = sorted(
+                path for path in (destination / "assets").rglob("*")
+                if path.is_file() and path.suffix in {".css", ".js", ".svg"}
+            )
+            self.assertTrue(sources)
+            first_sidecars = {}
+            for source in sources:
+                sidecar = source.with_name(source.name + ".gz")
+                self.assertTrue(sidecar.is_file(), sidecar)
+                self.assertEqual(
+                    gzip.decompress(sidecar.read_bytes()), source.read_bytes()
+                )
+                self.assertEqual(
+                    sidecar.stat().st_mtime_ns, source.stat().st_mtime_ns
+                )
+                first_sidecars[sidecar.relative_to(destination)] = sidecar.read_bytes()
+
+            stale_sidecar = destination / "assets" / "css" / "stale.css.gz"
+            stale_sidecar.write_bytes(b"stale")
+            preview.install_runtime(REPOSITORY, destination, bin_dir, user_home=root)
+
+            self.assertFalse(stale_sidecar.exists())
+            self.assertEqual(
+                {
+                    path.relative_to(destination): path.read_bytes()
+                    for path in (destination / "assets").rglob("*.gz")
+                    if path.with_suffix("").suffix in {".css", ".js", ".svg"}
+                },
+                first_sidecars,
+            )
+            self.assertEqual(list((destination / "assets").rglob("*.gz.gz")), [])
+
     def test_reinstall_cleans_managed_directories_and_preserves_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             user_home = Path(temporary) / "home"
@@ -495,7 +670,7 @@ class PandocIntegrationTests(unittest.TestCase):
         self.assertTrue(result.succeeded, result.diagnostics)
         html = (self.paths.html / (slug + ".html")).read_text(encoding="utf-8")
         self.assertIn(
-            'href="/pandocmd-preview/assets/css/custom.css"',
+            'href="/pandocmd-preview/assets/css/custom.css?v=',
             html,
         )
 
@@ -521,7 +696,7 @@ class PandocIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         html = output.read_text(encoding="utf-8")
-        self.assertIn('href="/css/default.css"', html)
+        self.assertIn('href="/css/default.css?v=', html)
         self.assertIn('href="/fonts/Merriweather-Variable.woff2"', html)
         self.assertNotIn("/pandocmd-preview/assets", html)
         self.assertNotIn("/pandocmd-preview/livereload", html)
@@ -632,11 +807,43 @@ class NginxIntegrationTests(unittest.TestCase):
                         ) as response:
                             self.assertEqual(response.status, 200)
                             self.assertIn("no-cache", response.headers["Cache-Control"])
+                            self.assertIsNone(response.headers["Content-Encoding"])
+                            self.assertEqual(
+                                response.read(),
+                                (paths.assets / "css" / "default.css").read_bytes(),
+                            )
                         break
                     except OSError:
                         if time.monotonic() >= deadline:
                             self.fail("nginx did not start")
                         time.sleep(0.05)
+
+                with urllib.request.urlopen(
+                    base + "/pandocmd-preview/assets/css/default.css?v=test"
+                ) as response:
+                    self.assertIn("immutable", response.headers["Cache-Control"])
+
+                for asset in (
+                    "css/default.css",
+                    "js/line-breaking.js",
+                    "katex/katex.min.js",
+                ):
+                    with self.subTest(asset=asset):
+                        request = urllib.request.Request(
+                            base + "/pandocmd-preview/assets/" + asset,
+                            headers={"Accept-Encoding": "gzip"},
+                        )
+                        with urllib.request.urlopen(request) as response:
+                            self.assertEqual(
+                                response.headers["Content-Encoding"], "gzip"
+                            )
+                            self.assertIn(
+                                "Accept-Encoding", response.headers["Vary"]
+                            )
+                            self.assertEqual(
+                                gzip.decompress(response.read()),
+                                (paths.assets / asset).read_bytes(),
+                            )
 
                 with urllib.request.urlopen(
                     base + "/pandocmd-preview/assets/fonts/IosevkaCustom-Regular.woff2"
@@ -688,6 +895,7 @@ class NginxIntegrationTests(unittest.TestCase):
                 _websocket_send(websocket, json.dumps({
                     "command": "hello",
                     "protocols": [preview.LIVE_RELOAD_PROTOCOL],
+                    "path": "/pandocmd-preview/Route-Test.html",
                 }))
                 self.assertEqual(_websocket_receive(websocket)["command"], "hello")
 

@@ -81,99 +81,67 @@ local function replace_field(template, name, value)
   end)
 end
 
-local function js_string(value)
-  local replacements = {
-    ["\\"] = "\\\\",
-    ['"'] = '\\"',
-    ["<"] = "\\u003c",
-    [">"] = "\\u003e",
-    ["&"] = "\\u0026",
-    ["\n"] = "\\n",
-    ["\r"] = "\\r",
-    ["\t"] = "\\t",
-  }
-  return '"' .. value:gsub('[\\"<>&\n\r\t]', replacements) .. '"'
-end
+local function stylesheet_assets(meta, stylesheets)
+  local assets_dir = stringify(meta["pandocmd-assets-dir"] or "assets")
+  local contents = { stylesheets }
+  local versions = {}
+  local line_breaking_css = util.read_file(util.join_path(assets_dir, "css/line-breaking.css"))
+    or error("could not read stylesheet asset css/line-breaking.css")
 
-local function live_reload_script()
-  local endpoint = os.getenv("PANDOCMD_PREVIEW_LIVE_RELOAD_URL")
-  if not endpoint or endpoint == "" then
-    return ""
+  local function version_for_href(href)
+    local path = href:gsub("[?#].*$", "")
+    local basename = path:match("/css/([^/]+)$") or path:match("^css/([^/]+)$")
+    if not basename then
+      return nil
+    end
+    if not versions[basename] then
+      local content = util.read_file(util.join_path(assets_dir, "css/" .. basename)) or href
+      versions[basename] = pandoc.sha1(content)
+      contents[#contents + 1] = basename .. "\0" .. content
+    end
+    return versions[basename]
   end
 
-  local script = [==[
-    <script>
-        (function () {
-            if (!("WebSocket" in window)) {
-                return;
-            }
+  for href in stylesheets:gmatch('href="([^"]+)"') do
+    version_for_href(href)
+  end
 
-            var endpoint = __ENDPOINT__;
-            var retryDelay = 1000;
+  contents[#contents + 1] = "line-breaking.css\0" .. line_breaking_css
+  local fingerprint = pandoc.sha1(table.concat(contents, "\0"))
+  local versioned = stylesheets:gsub('(href=")([^"]+)(")', function(prefix, href, suffix)
+    local version = version_for_href(href)
+    if not version then
+      return prefix .. href .. suffix
+    end
+    local separator = href:find("?", 1, true) and "&amp;" or "?"
+    return prefix .. href .. separator .. "v=" .. version .. suffix
+  end)
 
-            function socketUrl() {
-                if (/^wss?:\/\//.test(endpoint)) {
-                    return endpoint;
-                }
+  return versioned, fingerprint, pandoc.sha1(line_breaking_css)
+end
 
-                return (window.location.protocol === "https:" ? "wss://" : "ws://") +
-                    window.location.host + endpoint;
-            }
-
-            function connect() {
-                var socket;
-
-                try {
-                    socket = new WebSocket(socketUrl());
-                } catch (error) {
-                    retry();
-                    return;
-                }
-
-                socket.addEventListener("open", function () {
-                    socket.send(JSON.stringify({
-                        command: "hello",
-                        protocols: ["http://livereload.com/protocols/official-7"]
-                    }));
-                });
-
-                socket.addEventListener("message", function (event) {
-                    var message;
-
-                    try {
-                        message = JSON.parse(event.data);
-                    } catch (error) {
-                        return;
-                    }
-
-                    if (message.command === "reload") {
-                        if (window.__pandocmd && typeof window.__pandocmd.softReload === "function") {
-                            window.__pandocmd.softReload();
-                        } else {
-                            window.location.reload();
-                        }
-                    }
-                });
-
-                socket.addEventListener("close", retry);
-            }
-
-            function retry() {
-                window.setTimeout(connect, retryDelay);
-            }
-
-            connect();
-        }());
-    </script>
-]==]
-
-  return script:gsub("__ENDPOINT__", js_string(endpoint))
+local function page_runtime_assets(meta, stylesheet_fingerprint, template_source)
+  local assets_dir = stringify(meta["pandocmd-assets-dir"] or "assets")
+  local asset_base = stringify(meta["pandocmd-asset-base-url"] or ""):gsub("/+$", "")
+  local page_js = util.read_file(util.join_path(assets_dir, "js/page.js"))
+    or error("could not read page runtime asset js/page.js")
+  local page_js_fingerprint = pandoc.sha1(page_js)
+  local fingerprint = pandoc.sha1(template_source .. "\0" .. page_js)
+  local tags = {
+    '<meta name="pandocmd-page-fingerprint" content="' .. fingerprint .. '" />',
+    '<meta name="pandocmd-stylesheet-fingerprint" content="' .. stylesheet_fingerprint .. '" />',
+  }
+  local endpoint = os.getenv("PANDOCMD_PREVIEW_LIVE_RELOAD_URL")
+  if endpoint and endpoint ~= "" then
+    tags[#tags + 1] = '<meta name="pandocmd-live-reload-url" content="'
+      .. util.escape_html(endpoint) .. '" />'
+  end
+  tags[#tags + 1] = '<script defer src="' .. util.escape_html(asset_base .. "/js/page.js")
+    .. "?v=" .. page_js_fingerprint .. '"></script>'
+  return table.concat(tags, "\n")
 end
 
 local line_breaking_files = {
-  "css/default.css",
-  "css/chao-theorems.css",
-  "css/line-breaking.css",
   "js/vendor/typeset/linked-list.js",
   "js/vendor/typeset/linebreak.js",
   "js/vendor/hypher/hypher.browser.js",
@@ -181,7 +149,7 @@ local line_breaking_files = {
   "js/line-breaking.js",
 }
 
-local function line_breaking_assets(meta)
+local function line_breaking_assets(meta, line_breaking_stylesheet_fingerprint)
   local assets_dir = stringify(meta["pandocmd-assets-dir"] or "assets")
   local asset_base = stringify(meta["pandocmd-asset-base-url"] or ""):gsub("/+$", "")
   local contents = {}
@@ -197,7 +165,8 @@ local function line_breaking_assets(meta)
   end
   local tags = {
     '<meta name="pandocmd-line-breaking-fingerprint" content="' .. fingerprint .. '" />',
-    '<link rel="stylesheet" href="' .. asset_url("css/line-breaking.css") .. query .. '" />',
+    '<link rel="stylesheet" href="' .. asset_url("css/line-breaking.css")
+      .. "?v=" .. line_breaking_stylesheet_fingerprint .. '" />',
     '<script defer src="' .. asset_url("js/vendor/typeset/linked-list.js") .. query .. '"></script>',
     '<script defer src="' .. asset_url("js/vendor/typeset/linebreak.js") .. query .. '"></script>',
     '<script defer src="' .. asset_url("js/vendor/hypher/hypher.browser.js") .. query .. '"></script>',
@@ -220,21 +189,34 @@ function Writer(doc, opts)
   local asset_base = stringify(doc.meta["pandocmd-asset-base-url"] or ""):gsub("/+$", "")
   local template = util.read_file(template_path(doc.meta))
     or error("could not read pandocmd template")
+  local template_source = template
 
   template = apply_conditional(template, "title", title ~= "")
   template = apply_conditional(template, "abstract", abstract ~= "")
   local stylesheets = raw_meta_blocks(doc.meta.stylesheets)
+  local stylesheet_fingerprint
+  local line_breaking_stylesheet_fingerprint
   if stylesheets ~= "" then
     stylesheets = stylesheets .. "\n"
   end
+  stylesheets, stylesheet_fingerprint, line_breaking_stylesheet_fingerprint =
+    stylesheet_assets(doc.meta, stylesheets)
   template = replace_field(template, "title", title)
   template = replace_field(template, "abstract-title", abstract_title)
   template = replace_field(template, "abstract", abstract)
   template = replace_field(template, "asset-base", asset_base)
   template = replace_field(template, "stylesheets", stylesheets)
-  template = replace_field(template, "line-breaking-assets", line_breaking_assets(doc.meta))
+  template = replace_field(
+    template,
+    "line-breaking-assets",
+    line_breaking_assets(doc.meta, line_breaking_stylesheet_fingerprint)
+  )
+  template = replace_field(
+    template,
+    "page-runtime-assets",
+    page_runtime_assets(doc.meta, stylesheet_fingerprint, template_source)
+  )
   template = replace_field(template, "toc", raw_meta_blocks(doc.meta.toc))
-  template = replace_field(template, "live-reload", live_reload_script())
   template = replace_field(template, "body", body)
 
   return template

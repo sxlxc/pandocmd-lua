@@ -6,6 +6,7 @@ import base64
 import contextlib
 import dataclasses
 import fcntl
+import gzip
 import hashlib
 import http.server
 import json
@@ -38,8 +39,8 @@ LIVE_RELOAD_PROTOCOL = "http://livereload.com/protocols/official-7"
 WEBSOCKET_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 SERVICE_NAME = "pandocmd-preview-livereload"
 MAX_SLUG_BYTES = 180
-POLL_INTERVAL = 0.20
-DEBOUNCE_SECONDS = 0.20
+POLL_INTERVAL = 0.05
+DEBOUNCE_SECONDS = 0.10
 NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 RUNTIME_LUA_FILES = (
     "algorithms.lua",
@@ -123,6 +124,7 @@ def runtime_problems(paths):
         paths.executable,
         paths.assets / "templates" / "default.html",
         paths.assets / "css" / "default.css",
+        paths.assets / "js" / "page.js",
         paths.assets / "math-macros.tex",
         paths.assets / "bib_style.csl",
         paths.nginx_example,
@@ -329,6 +331,28 @@ def preview_url(slug, port=DEFAULT_PUBLIC_PORT):
     return "http://{}{}{}/{}.html".format(authority, "", PREVIEW_URL_PREFIX, encoded_slug)
 
 
+def _preview_pathname(value):
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(value)
+    except (UnicodeError, ValueError):
+        return None
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        return None
+    try:
+        pathname = urllib.parse.unquote(parsed.path, errors="strict")
+    except (UnicodeError, ValueError):
+        return None
+    prefix = PREVIEW_URL_PREFIX + "/"
+    if not pathname.startswith(prefix) or not pathname.endswith(".html"):
+        return None
+    slug = unicodedata.normalize("NFKC", pathname[len(prefix):-len(".html")])
+    if not _safe_stored_slug(slug):
+        return None
+    return prefix + slug + ".html"
+
+
 def _atomic_text_write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
@@ -485,6 +509,7 @@ class LiveReloadHub:
             self.clients.discard(client)
 
     def broadcast_reload(self, path):
+        pathname = _preview_pathname(path)
         message = json.dumps({
             "command": "reload",
             "path": path,
@@ -496,6 +521,9 @@ class LiveReloadHub:
             clients = list(self.clients)
         delivered = 0
         for client in clients:
+            accepts_reload = getattr(client, "accepts_reload", None)
+            if accepts_reload is not None and not accepts_reload(pathname):
+                continue
             if client.send_text(message):
                 delivered += 1
             else:
@@ -513,6 +541,9 @@ class LiveReloadClient:
     def __init__(self, handler):
         self.socket = handler.connection
         self.send_lock = threading.Lock()
+        self.subscription_lock = threading.Lock()
+        self.subscription_requested = False
+        self.subscription_path = None
         self.open = True
 
     def read_exact(self, size):
@@ -573,12 +604,27 @@ class LiveReloadClient:
                 message = json.loads(payload.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            if message.get("command") == "hello":
-                self.send_text(json.dumps({
-                    "command": "hello",
-                    "protocols": [LIVE_RELOAD_PROTOCOL],
-                    "serverName": "pandocmd",
-                }, separators=(",", ":")))
+            self._handle_message(message)
+
+    def _handle_message(self, message):
+        if not isinstance(message, dict) or message.get("command") != "hello":
+            return
+        requested = "path" in message
+        pathname = _preview_pathname(message.get("path")) if requested else None
+        with self.subscription_lock:
+            self.subscription_path = pathname
+            self.subscription_requested = requested
+        self.send_text(json.dumps({
+            "command": "hello",
+            "protocols": [LIVE_RELOAD_PROTOCOL],
+            "serverName": "pandocmd",
+        }, separators=(",", ":")))
+
+    def accepts_reload(self, pathname):
+        with self.subscription_lock:
+            if not self.subscription_requested:
+                return True
+            return pathname is not None and pathname == self.subscription_path
 
     def send_text(self, text):
         return self.send_frame(0x1, text.encode("utf-8"))
@@ -1026,29 +1072,32 @@ def runtime_watch_files(paths):
 def _file_signature(path):
     try:
         stat = os.stat(path)
-        return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+        return (stat.st_mtime_ns, stat.st_size)
     except OSError:
         return None
 
 
 class PollingWatcher:
     def __init__(self, paths):
-        self.paths = set(paths)
+        self.paths = {canonical_path(path) for path in paths}
         self.signatures = {path: _file_signature(path) for path in self.paths}
 
     def replace_paths(self, paths):
-        paths = set(paths)
+        paths = {canonical_path(path) for path in paths}
         self.paths = paths
         self.signatures = {path: _file_signature(path) for path in paths}
 
-    def changed(self):
-        changed = False
+    def changed_paths(self):
+        changed = set()
         for path in self.paths:
             signature = _file_signature(path)
             if signature != self.signatures.get(path):
-                changed = True
+                changed.add(path)
             self.signatures[path] = signature
         return changed
+
+    def changed(self):
+        return bool(self.changed_paths())
 
 
 class DashboardTerminal:
@@ -1135,7 +1184,7 @@ def watch_preview(paths, source, slug, url, initial_result):
         while True:
             if terminal.requested_exit():
                 return 0
-            if watcher.changed():
+            if watcher.changed_paths():
                 pending_since = time.monotonic()
             if pending_since is not None and time.monotonic() - pending_since >= DEBOUNCE_SECONDS:
                 before_build = dict(watcher.signatures)
@@ -1289,6 +1338,7 @@ def managed_runtime_files(source_root):
     # index. Keeping the explicit additions makes development installs complete
     # without opening the installer to arbitrary untracked files.
     candidates.update({
+        Path("assets/js/page.js"),
         Path("bin/pandocmd-preview"),
         Path("nginx/pandocmd.conf.example"),
     })
@@ -1330,6 +1380,21 @@ def _replace_managed_directory(staged, destination, name):
     else:
         with contextlib.suppress(FileNotFoundError):
             backup.unlink()
+
+
+def _precompress_assets(assets):
+    """Create deterministic gzip sidecars for nginx's static asset serving."""
+    compressible_suffixes = {".css", ".js", ".svg"}
+    for source in sorted(assets.rglob("*")):
+        if not source.is_file() or source.suffix.lower() not in compressible_suffixes:
+            continue
+        sidecar = source.with_name(source.name + ".gz")
+        source_stat = source.stat()
+        sidecar.write_bytes(
+            gzip.compress(source.read_bytes(), compresslevel=9, mtime=0)
+        )
+        shutil.copymode(source, sidecar)
+        os.utime(sidecar, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
 
 
 def _symlink_target(path):
@@ -1378,6 +1443,7 @@ def install_runtime(source_root, destination, bin_dir, user_home=None):
         Path("bin/pandocmd-preview"),
         Path("nginx/pandocmd.conf.example"),
         Path("assets/templates/default.html"),
+        Path("assets/js/page.js"),
     }
     required.update(Path("lua") / name for name in RUNTIME_LUA_FILES)
     missing = required - set(files)
@@ -1393,6 +1459,7 @@ def install_runtime(source_root, destination, bin_dir, user_home=None):
             target = staged / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_root / relative, target)
+        _precompress_assets(staged / "assets")
         (staged / "bin" / "pandocmd-preview").chmod(0o755)
 
         destination.mkdir(parents=True, exist_ok=True)

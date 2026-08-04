@@ -278,14 +278,24 @@ test('survives repeated enhancement and a same-fingerprint soft reload', async (
     const controller = window.__pandocmd.lineBreaking;
     const paragraph = document.querySelector('section.body p');
     const link = paragraph.querySelector('a');
+    const stylesheets = Array.from(document.querySelectorAll(
+        'head link[rel~="stylesheet"]',
+    ));
     const measurements = controller.debugStats.measurements;
     const solves = controller.debugStats.solves;
     const reused = controller.debugStats.reusedRuns;
+    link.focus();
     await window.__pandocmd.softReload();
     return {
       sameController: controller === window.__pandocmd.lineBreaking,
       sameParagraph: paragraph === document.querySelector('section.body p'),
       sameLink: link === document.querySelector('section.body p a'),
+      retainedFocus: document.activeElement === link,
+      retainedStylesheets: stylesheets.every(
+          (stylesheet, index) => stylesheet === document.querySelectorAll(
+              'head link[rel~="stylesheet"]',
+          )[index],
+      ),
       measurements: controller.debugStats.measurements - measurements,
       solves: controller.debugStats.solves - solves,
       reused: controller.debugStats.reusedRuns - reused,
@@ -294,6 +304,8 @@ test('survives repeated enhancement and a same-fingerprint soft reload', async (
   expect(reloaded.sameController).toBe(true);
   expect(reloaded.sameParagraph).toBe(true);
   expect(reloaded.sameLink).toBe(true);
+  expect(reloaded.retainedFocus).toBe(true);
+  expect(reloaded.retainedStylesheets).toBe(true);
   expect(reloaded.measurements).toBe(0);
   expect(reloaded.solves).toBe(0);
   expect(reloaded.reused).toBeGreaterThan(0);
@@ -313,6 +325,179 @@ test('survives repeated enhancement and a same-fingerprint soft reload', async (
     ).length,
   }));
   expect(folding.headings).toBe(folding.buttons);
+});
+
+test('loads versioned page/CSS assets and filters reload paths', async ({page}) => {
+  const runtime = await page.evaluate(() => {
+    const pageFingerprint = document.querySelector(
+        'meta[name="pandocmd-page-fingerprint"]',
+    );
+    const stylesheetFingerprint = document.querySelector(
+        'meta[name="pandocmd-stylesheet-fingerprint"]',
+    );
+    const pageScript = document.querySelector('script[src*="/js/page.js?v="]');
+    const cssLinks = Array.from(document.querySelectorAll(
+        'head link[rel~="stylesheet"][href*="/css/"]',
+    ));
+
+    return {
+      pageFingerprint: pageFingerprint && pageFingerprint.content,
+      stylesheetFingerprint: stylesheetFingerprint &&
+        stylesheetFingerprint.content,
+      pageScript: pageScript && pageScript.src,
+      versionedCss: cssLinks.length > 0 && cssLinks.every(
+          (stylesheet) => new URL(stylesheet.href).searchParams.has('v'),
+      ),
+      samePath: window.__pandocmd.reloadPathMatches(window.location.pathname),
+      otherPath: window.__pandocmd.reloadPathMatches('/preview/other.html'),
+      liveReloadMeta: Boolean(document.querySelector(
+          'meta[name="pandocmd-live-reload-url"]',
+      )),
+    };
+  });
+
+  expect(runtime.pageFingerprint).toMatch(/^[a-f0-9]{40}$/);
+  expect(runtime.stylesheetFingerprint).toMatch(/^[a-f0-9]{40}$/);
+  expect(runtime.pageScript).toMatch(/\/js\/page\.js\?v=[a-f0-9]{40}$/);
+  expect(runtime.versionedCss).toBe(true);
+  expect(runtime.samePath).toBe(true);
+  expect(runtime.otherPath).toBe(false);
+  expect(runtime.liveReloadMeta).toBe(false);
+});
+
+test('hot-swaps only changed CSS before committing new content', async ({page}) => {
+  const result = await page.evaluate(async () => {
+    const originalFetch = window.fetch;
+    const response = await originalFetch(window.location.href, {cache: 'no-store'});
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const oldStylesheets = Array.from(document.querySelectorAll(
+        'head link[rel~="stylesheet"]',
+    ));
+    const oldCss = oldStylesheets.filter(
+        (stylesheet) => new URL(stylesheet.href).pathname.includes('/css/'),
+    );
+    const oldDefault = oldCss.find(
+        (stylesheet) => new URL(stylesheet.href).pathname.endsWith(
+            '/css/default.css',
+        ),
+    );
+    const oldKatex = oldStylesheets.find(
+        (stylesheet) => new URL(stylesheet.href).pathname.includes('/katex/'),
+    );
+
+    const nextDefault = Array.from(parsed.querySelectorAll(
+        'head link[rel~="stylesheet"][href*="/css/"]',
+    )).find(
+        (stylesheet) => new URL(
+            stylesheet.href, window.location.href,
+        ).pathname.endsWith('/css/default.css'),
+    );
+    const nextDefaultUrl = new URL(
+        nextDefault.getAttribute('href'), window.location.href,
+    );
+    nextDefaultUrl.searchParams.set('v', 'reload-test');
+    nextDefault.setAttribute(
+        'href', nextDefaultUrl.pathname + nextDefaultUrl.search,
+    );
+    parsed.querySelector(
+        'meta[name="pandocmd-stylesheet-fingerprint"]',
+    ).content = '0000000000000000000000000000000000000000';
+    parsed.querySelector('section.body').setAttribute(
+        'data-stylesheet-reload-test', '',
+    );
+    const changedHtml = '<!doctype html>\n' + parsed.documentElement.outerHTML;
+
+    window.fetch = function() {
+      return Promise.resolve(new Response(changedHtml, {
+        headers: {'Content-Type': 'text/html'},
+        status: 200,
+      }));
+    };
+    try {
+      await window.__pandocmd.softReload();
+    } finally {
+      window.fetch = originalFetch;
+    }
+
+    const currentStylesheets = Array.from(document.querySelectorAll(
+        'head link[rel~="stylesheet"]',
+    ));
+    const currentCss = currentStylesheets.filter(
+        (stylesheet) => new URL(stylesheet.href).pathname.includes('/css/'),
+    );
+    return {
+      committed: document.querySelector('section.body').hasAttribute(
+          'data-stylesheet-reload-test',
+      ),
+      count: currentStylesheets.length,
+      oldDefaultRemoved: !oldDefault.isConnected,
+      unchangedCssRetained: oldCss.every(
+          (stylesheet) => stylesheet === oldDefault || stylesheet.isConnected,
+      ),
+      newCssLoaded: currentCss.every((stylesheet) => Boolean(stylesheet.sheet)),
+      newDefaultVersion: new URL(currentCss.find(
+          (stylesheet) => new URL(stylesheet.href).pathname.endsWith(
+              '/css/default.css',
+          ),
+      ).href).searchParams.get('v'),
+      retainedKatex: oldKatex === currentStylesheets.find(
+          (stylesheet) => new URL(stylesheet.href).pathname.includes('/katex/'),
+      ),
+    };
+  });
+
+  expect(result.committed).toBe(true);
+  expect(result.count).toBeGreaterThan(0);
+  expect(result.oldDefaultRemoved).toBe(true);
+  expect(result.unchangedCssRetained).toBe(true);
+  expect(result.newCssLoaded).toBe(true);
+  expect(result.newDefaultVersion).toBe('reload-test');
+  expect(result.retainedKatex).toBe(true);
+});
+
+test('keeps a visible retained anchor fixed when content is inserted above', async ({page}) => {
+  const result = await page.evaluate(async () => {
+    const paragraphs = Array.from(document.querySelectorAll('section.body p'));
+    const anchor = paragraphs[Math.floor(paragraphs.length / 2)];
+    const originalFetch = window.fetch;
+    const response = await originalFetch(window.location.href, {cache: 'no-store'});
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const inserted = parsed.createElement('div');
+
+    inserted.className = 'source-line';
+    inserted.setAttribute('data-source-line', '99999');
+    inserted.innerHTML = '<p>' + Array(80).fill(
+        'Inserted prose changes the document height above the viewport.',
+    ).join(' ') + '</p>';
+    parsed.querySelector('section.body').insertBefore(
+        inserted, parsed.querySelector('section.body').firstChild,
+    );
+    const changedHtml = '<!doctype html>\n' + parsed.documentElement.outerHTML;
+
+    anchor.scrollIntoView({block: 'center'});
+    const top = anchor.getBoundingClientRect().top;
+    window.fetch = function() {
+      return Promise.resolve(new Response(changedHtml, {
+        headers: {'Content-Type': 'text/html'},
+        status: 200,
+      }));
+    };
+    try {
+      await window.__pandocmd.softReload();
+    } finally {
+      window.fetch = originalFetch;
+    }
+
+    return {
+      sameAnchor: anchor.isConnected,
+      topDelta: anchor.getBoundingClientRect().top - top,
+    };
+  });
+
+  expect(result.sameAnchor).toBe(true);
+  expect(Math.abs(result.topDelta)).toBeLessThanOrEqual(1);
 });
 
 test('soft reload solves only an edited paragraph', async ({page}) => {

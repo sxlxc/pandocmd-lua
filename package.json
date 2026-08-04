@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "benchmark-browser": "PANDOCMD_BENCHMARK=1 playwright test tests/browser/benchmark.spec.js --project=chromium",
-    "lint": "eslint assets/js/line-breaking.js tests/browser",
+    "lint": "eslint assets/js/line-breaking.js assets/js/page.js tests/browser",
     "test-browser": "playwright test"
   },
   "devDependencies": {

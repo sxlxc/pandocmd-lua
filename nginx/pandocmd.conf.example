@@ -15,6 +15,8 @@ server {
     allow fd7a:115c:a1e0::/48;
     deny all;
 
+    gzip_vary on;
+
     location = /pandocmd-preview/livereload {
         proxy_pass http://127.0.0.1:35729;
         proxy_http_version 1.1;
@@ -50,6 +52,7 @@ server {
 
     location ^~ /pandocmd-preview/assets/katex/ {
         alias "__PANDOCMD_PREVIEW_HOME__/assets/katex/";
+        gzip_static on;
         add_header Cache-Control "public, max-age=604800, immutable" always;
     }
 
@@ -59,10 +62,15 @@ server {
         add_header Cache-Control "public, max-age=604800, immutable" always;
     }
 
-    # CSS and the remaining installed assets revalidate so an installation
-    # update is visible on the next reload.
+    # Fingerprinted assets can remain cached; unversioned assets revalidate so
+    # an installation update is still visible.
     location ^~ /pandocmd-preview/assets/ {
         alias "__PANDOCMD_PREVIEW_HOME__/assets/";
-        add_header Cache-Control "no-cache" always;
+        gzip_static on;
+        set $pandocmd_asset_cache_control "no-cache";
+        if ($arg_v != "") {
+            set $pandocmd_asset_cache_control "public, max-age=31536000, immutable";
+        }
+        add_header Cache-Control $pandocmd_asset_cache_control always;
     }
 }
