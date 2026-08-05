@@ -90,7 +90,7 @@
     let teardown;
 
     if (previous && typeof previous.destroy === 'function') {
-      previous.destroy();
+      previous.destroy({restoreSource: true});
     }
     if (typeof window.__pandocmd.createLineBreaking !== 'function') {
       teardown = function() {};
@@ -103,7 +103,7 @@
     controller.refresh(document.querySelector('.text-space section.body') || document);
 
     teardown = function() {
-      controller.destroy();
+      controller.destroy({restoreSource: true});
     };
     teardown.pandocmdLineBreaking = true;
     return teardown;

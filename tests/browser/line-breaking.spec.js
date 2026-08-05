@@ -75,6 +75,57 @@ test('lays out eligible prose and preserves semantic elements', async ({page}) =
   expect(await paragraph.textContent()).toContain('nested emphasis');
 });
 
+test('normalizes collapsible whitespace to visible space tokens', async ({page}) => {
+  const result = await page.evaluate(async () => {
+    const paragraph = document.createElement('p');
+    paragraph.style.width = '360px';
+    paragraph.innerHTML = 'Whitespace around <em>inline markup</em>\n\t' +
+      '<span>must collapse to one visible space</span>, while enough ordinary ' +
+      'prose keeps this paragraph eligible for line breaking and inspection.';
+    document.querySelector('section.body').appendChild(paragraph);
+    await window.__pandocmd.lineBreaking.refresh(paragraph);
+    return {
+      status: paragraph.getAttribute('data-pandocmd-kp-status'),
+      spaces: Array.from(paragraph.querySelectorAll(
+          '[data-pandocmd-kp-token="space"]',
+      )).map((token) => token.textContent),
+    };
+  });
+
+  expect(result.status).toBe('laid-out');
+  expect(result.spaces.length).toBeGreaterThan(0);
+  expect(result.spaces.every((space) => space === ' ')).toBe(true);
+});
+
+test('keeps writer line breaks visible in theorem prose', async ({page}) => {
+  const result = await page.locator(
+      '[id="lem:finite-transversal-girth-hardness"]',
+  ).evaluate(async (theorem) => {
+    theorem.style.width = '300px';
+    await window.__pandocmd.lineBreaking.refresh(theorem);
+    const hence = Array.from(theorem.children).find(
+        (child) => child.textContent === 'hence',
+    );
+    const space = hence && hence.nextElementSibling;
+    const has = space && space.nextElementSibling;
+    return {
+      status: theorem.getAttribute('data-pandocmd-kp-status'),
+      display: space && getComputedStyle(space).display,
+      spaceText: space && space.textContent,
+      spaceWidth: space && space.getBoundingClientRect().width,
+      sameLine: Boolean(has) && Math.abs(
+          hence.getBoundingClientRect().top - has.getBoundingClientRect().top,
+      ) < 1,
+    };
+  });
+
+  expect(result.status).toBe('laid-out');
+  expect(result.display).toBe('inline-block');
+  expect(result.spaceText).toBe(' ');
+  expect(result.spaceWidth).toBeGreaterThan(1);
+  expect(result.sameLine).toBe(true);
+});
+
 test('uses independent native fallback for unsafe and oversized runs', async ({page}) => {
   const cjk = page.locator('p', {hasText: '这段中文'});
   await expect(cjk).toHaveAttribute('data-pandocmd-kp-fallback', 'unsafe-geometry');

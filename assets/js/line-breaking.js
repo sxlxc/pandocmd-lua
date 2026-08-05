@@ -37,6 +37,7 @@
     let destroyed = false;
     const runs = new Map();
     const widthCache = new Map();
+    const sourceWhitespace = new WeakMap();
     let pendingRoots = [];
     let resizeObserver = null;
     let scheduled = false;
@@ -270,7 +271,7 @@
         return null;
       }
       if (previous) {
-        cleanRun(previous, false);
+        cleanRun(previous, false, true);
       }
       const run = {
         container: container,
@@ -300,6 +301,7 @@
         fallback(run, 'item-limit');
         return null;
       }
+      run.signature = runSignature(container, width);
       if (!run.tokens.length) {
         fallback(run, 'empty');
         return null;
@@ -471,18 +473,22 @@
       let match = pattern.exec(text);
       while (match) {
         const part = match[0];
+        const kind = /^[ \t\r\n\f]+$/.test(part) ? 'space' : 'word';
+        const content = kind === 'space' ? ' ' : part;
         if (!reserveToken(run)) {
           return;
         }
         const span = document.createElement('span');
-        span.setAttribute('data-pandocmd-kp-token',
-          /^[ \t\r\n\f]+$/.test(part) ? 'space' : 'word');
-        span.textContent = part;
+        span.setAttribute('data-pandocmd-kp-token', kind);
+        span.textContent = content;
+        if (kind === 'space') {
+          sourceWhitespace.set(span, part);
+        }
         fragment.appendChild(span);
         const token = {
-          kind: /^[ \t\r\n\f]+$/.test(part) ? 'space' : 'word',
+          kind: kind,
           element: span,
-          text: part,
+          text: content,
           parts: null,
         };
         run.tokens.push(token);
@@ -915,7 +921,8 @@
     }
 
     function fallback(run, reason) {
-      cleanRun(run, true);
+      cleanRun(run, true, true);
+      run.signature = runSignature(run.container, run.width);
       run.tokens = [];
       run.nodes = [];
       run.breaks = [];
@@ -926,11 +933,14 @@
       run.container.setAttribute('data-pandocmd-kp-fallback', reason);
     }
 
-    function cleanRun(run, keepRecord) {
+    function cleanRun(run, keepRecord, restoreWhitespace) {
       const container = run.container;
       if (container && container.isConnected) {
         Array.prototype.slice.call(container.querySelectorAll(
             '[data-pandocmd-kp-generated]')).forEach(removeNode);
+        if (restoreWhitespace) {
+          restoreSourceWhitespace(container);
+        }
         unwrapTokens(container);
         container.classList.remove('pandocmd-kp-active');
         container.classList.remove('pandocmd-kp-fallback');
@@ -944,6 +954,15 @@
         }
         runs.delete(container);
       }
+    }
+
+    function restoreSourceWhitespace(root) {
+      Array.prototype.slice.call(root.querySelectorAll(
+          '[data-pandocmd-kp-token="space"]')).forEach(function(token) {
+        if (sourceWhitespace.has(token)) {
+          token.textContent = sourceWhitespace.get(token);
+        }
+      });
     }
 
     function unwrapTokens(root) {
@@ -1127,7 +1146,7 @@
       generation += 1;
       pendingRoots = [];
       runs.forEach(function(run) {
-        cleanRun(run, false);
+        cleanRun(run, false, true);
       });
       runs.clear();
     }
@@ -1140,10 +1159,11 @@
       refresh(document);
     }
 
-    function destroy() {
+    function destroy(options) {
       if (destroyed) {
         return;
       }
+      const restoreSource = Boolean(options && options.restoreSource);
       generation += 1;
       destroyed = true;
       pendingRoots = [];
@@ -1152,7 +1172,7 @@
         resizeObserver.disconnect();
       }
       runs.forEach(function(run) {
-        cleanRun(run, false);
+        cleanRun(run, false, restoreSource);
       });
       runs.clear();
       document.removeEventListener('copy', handleCopy);

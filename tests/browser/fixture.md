@@ -35,6 +35,10 @@ This run contains a long URL
 $\frac{\sum_{i=1}^{n} i}{1+x}$ and enough surrounding prose to wrap.
 :::
 
+::: {#lem:finite-transversal-girth-hardness .lemma}
+Computing the girth of a bipartite-presented transversal matroid is NP-hard even under the promise that the matroid has a circuit, and hence has finite girth.
+:::
+
 ::: {#katex-centering-fixture}
 This justified paragraph contains the asymmetric inline fraction
 $\frac{x}{1+y+z}$ and enough surrounding prose to exercise inherited text
