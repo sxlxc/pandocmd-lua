@@ -101,15 +101,16 @@ test('keeps writer line breaks visible in theorem prose', async ({page}) => {
   const result = await page.locator(
       '[id="lem:finite-transversal-girth-hardness"]',
   ).evaluate(async (theorem) => {
-    theorem.style.width = '300px';
+    theorem.style.width = '500px';
     await window.__pandocmd.lineBreaking.refresh(theorem);
-    const hence = Array.from(theorem.children).find(
+    const paragraph = theorem.querySelector(':scope > p');
+    const hence = Array.from(paragraph.children).find(
         (child) => child.textContent === 'hence',
     );
     const space = hence && hence.nextElementSibling;
     const has = space && space.nextElementSibling;
     return {
-      status: theorem.getAttribute('data-pandocmd-kp-status'),
+      status: paragraph.getAttribute('data-pandocmd-kp-status'),
       display: space && getComputedStyle(space).display,
       spaceText: space && space.textContent,
       spaceWidth: space && space.getBoundingClientRect().width,
@@ -238,8 +239,11 @@ test('disables cleanly when the default document scope is absent', async ({page}
 
 test('never tokenizes source-line links as prose', async ({page}) => {
   const theorem = page.locator('.theorem-environment').first();
+  const firstParagraph = theorem.locator(':scope > p').first();
   const sourceLink = theorem.locator(':scope > .source-line-link');
-  await expect(theorem).toHaveAttribute('data-pandocmd-kp-status', 'laid-out');
+  await expect(theorem).not.toHaveAttribute('data-pandocmd-kp-status', /.+/);
+  await expect(firstParagraph).toHaveAttribute(
+      'data-pandocmd-kp-status', 'laid-out');
   await expect(sourceLink).toHaveCount(1);
   await expect(page.locator(
       '.source-line-link [data-pandocmd-kp-token]',
@@ -253,6 +257,146 @@ test('never tokenizes source-line links as prose', async ({page}) => {
     };
   });
   expect(Math.abs(rightEdges.box - rightEdges.text)).toBeLessThanOrEqual(0.5);
+});
+
+test('lays out opening theorem and proof paragraphs with inline headers', async ({page}) => {
+  const result = await page.evaluate(async () => {
+    const section = document.createElement('section');
+    const specifications = [
+      {
+        className: 'Theorem',
+        index: '2',
+        line: '41',
+        opening: [
+          'The theorem begins with its first paragraph and enough prose to ' +
+            'exercise several justified lines at this narrow measure.',
+        ],
+      },
+      {
+        className: 'Proof',
+        line: '52',
+        opening: [
+          'Choose a maximum matching of the original presentation. It matches ',
+          {math: 'r'},
+          ' elements of ',
+          {math: 'X'},
+          ' to ',
+          {math: 'r'},
+          ' distinct vertices of ',
+          {math: 'R'},
+          '. Match the ',
+          {math: 'k-r'},
+          ' universal elements of ',
+          {math: 'Z'},
+          ' to the remaining presentation vertices. Thus the new presentation ' +
+            'has rank ',
+          {math: 'k'},
+          '.',
+        ],
+      },
+    ];
+    specifications.forEach((specification) => {
+      const environment = document.createElement('div');
+      environment.className = 'theorem-environment ' + specification.className;
+      environment.dataset.sourceLine = specification.line;
+      environment.style.width = '360px';
+      const sourceLink = document.createElement('a');
+      sourceLink.className = 'source-line-link';
+      sourceLink.textContent = specification.line;
+      const first = document.createElement('p');
+      const header = document.createElement('span');
+      header.className = 'theorem-header';
+      const type = document.createElement('span');
+      type.className = 'type';
+      type.textContent = specification.className;
+      header.append(type);
+      if (specification.index) {
+        const index = document.createElement('span');
+        index.className = 'index';
+        index.textContent = specification.index;
+        header.append(index);
+      }
+      first.append(header);
+      specification.opening.forEach((part) => {
+        if (typeof part === 'string') {
+          first.append(part);
+          return;
+        }
+        const math = document.createElement('span');
+        math.className = 'math inline';
+        window.katex.render(part.math, math, {throwOnError: false});
+        first.append(math);
+      });
+      const second = document.createElement('p');
+      second.textContent = Array(3).fill(
+          'A second paragraph confirms independent discovery inside the same ' +
+          'theorem environment.',
+      ).join(' ');
+      environment.append(sourceLink, first, second);
+      section.appendChild(environment);
+    });
+    document.querySelector('section.body').appendChild(section);
+    await window.__pandocmd.lineBreaking.refresh(section);
+
+    return Array.from(section.children).map((environment) => {
+      const paragraphs = Array.from(environment.querySelectorAll(':scope > p'));
+      const first = paragraphs[0];
+      const header = first.querySelector('.theorem-header');
+      const firstBodyWord = Array.from(first.querySelectorAll(
+          '[data-pandocmd-kp-token="word"]',
+      )).find((word) => !word.closest('.theorem-header'));
+      const sourceLink = environment.querySelector(':scope > .source-line-link');
+      return {
+        className: environment.classList[1],
+        outerStatus: environment.getAttribute('data-pandocmd-kp-status'),
+        firstParagraphStatus: first.getAttribute('data-pandocmd-kp-status'),
+        firstParagraphBroken: first.querySelector(
+            '[data-pandocmd-kp-generated="break"]') !== null,
+        inlineMathCount: first.querySelectorAll('.math.inline').length,
+        secondParagraphDiscovered: /^(laid-out|fallback)$/.test(
+            paragraphs[1].getAttribute('data-pandocmd-kp-status')),
+        headerInFirstParagraph: header.parentElement === first,
+        headerAndBodyShareLine: Math.abs(
+            header.getBoundingClientRect().top -
+            firstBodyWord.getBoundingClientRect().top,
+        ) < 1,
+        sourceLine: environment.dataset.sourceLine,
+        sourceLabel: sourceLink.textContent,
+        sourceLabelTokens: sourceLink.querySelectorAll(
+            '[data-pandocmd-kp-token]',
+        ).length,
+      };
+    });
+  });
+
+  expect(result).toEqual([
+    {
+      className: 'Theorem',
+      outerStatus: null,
+      firstParagraphStatus: 'laid-out',
+      firstParagraphBroken: true,
+      inlineMathCount: 0,
+      secondParagraphDiscovered: true,
+      headerInFirstParagraph: true,
+      headerAndBodyShareLine: true,
+      sourceLine: '41',
+      sourceLabel: '41',
+      sourceLabelTokens: 0,
+    },
+    {
+      className: 'Proof',
+      outerStatus: null,
+      firstParagraphStatus: 'laid-out',
+      firstParagraphBroken: true,
+      inlineMathCount: 7,
+      secondParagraphDiscovered: true,
+      headerInFirstParagraph: true,
+      headerAndBodyShareLine: true,
+      sourceLine: '52',
+      sourceLabel: '52',
+      sourceLabelTokens: 0,
+    },
+  ]);
 });
 
 test('aligns algorithm source-line markers with their paragraphs', async ({page}) => {
@@ -618,6 +762,7 @@ test('soft reload solves only an edited paragraph', async ({page}) => {
         (paragraph) => paragraph.textContent.includes('This paragraph has a forced'),
     );
     const theorem = document.querySelector('.theorem-environment');
+    const theoremParagraph = theorem.querySelector(':scope > p');
     const originalFetch = window.fetch;
     const response = await originalFetch(window.location.href, {cache: 'no-store'});
     const html = await response.text();
@@ -653,7 +798,8 @@ test('soft reload solves only an edited paragraph', async ({page}) => {
     return {
       sameController: controller === window.__pandocmd.lineBreaking,
       sameUnchanged: unchanged === document.querySelector('section.body p'),
-      sameTheorem: theorem === document.querySelector('.theorem-environment'),
+      sameTheoremParagraph: theoremParagraph === document.querySelector(
+          '.theorem-environment > p'),
       theoremLine: document.querySelector(
           '.theorem-environment > .source-line-link',
       ).textContent,
@@ -668,7 +814,7 @@ test('soft reload solves only an edited paragraph', async ({page}) => {
   });
   expect(result.sameController).toBe(true);
   expect(result.sameUnchanged).toBe(true);
-  expect(result.sameTheorem).toBe(true);
+  expect(result.sameTheoremParagraph).toBe(true);
   expect(Number(result.theoremLine)).toBeGreaterThan(1000);
   expect(result.replacedChanged).toBe(true);
   expect(result.solveDelta).toBe(1);
@@ -810,6 +956,86 @@ test('copy data and suspended layout contain no generated artifacts', async ({pa
       'data-pandocmd-kp-status',
       'laid-out',
   );
+});
+
+test('never starts a line with closing punctuation', async ({page}) => {
+  const result = await page.evaluate(async () => {
+    const cases = [
+      {kind: 'math-period', math: 'x \\allowbreak .', punctuation: '.'},
+      {kind: 'math-comma', math: 'x \\allowbreak ,', punctuation: ','},
+      {kind: 'optional-semicolon', optional: true, punctuation: ';'},
+      {kind: 'spaced-closing-parenthesis', spaced: true, punctuation: ')'},
+    ];
+    const section = document.createElement('section');
+    section.id = 'punctuation-line-start-fixture';
+    cases.forEach((entry) => {
+      for (let width = 80; width <= 160; width += 2) {
+        const paragraph = document.createElement('p');
+        paragraph.style.width = width + 'px';
+        paragraph.dataset.kind = entry.kind;
+        paragraph.dataset.punctuation = entry.punctuation;
+        paragraph.append('lead words ');
+        if (entry.math) {
+          const math = document.createElement('span');
+          math.className = 'math inline';
+          window.katex.render(entry.math, math, {throwOnError: false});
+          paragraph.append(math);
+        } else {
+          const code = document.createElement('code');
+          code.textContent = 'x';
+          paragraph.append(code);
+          if (entry.optional) {
+            paragraph.append(document.createElement('wbr'));
+          } else if (entry.spaced) {
+            paragraph.append(' ');
+          }
+          paragraph.append(entry.punctuation);
+        }
+        paragraph.append(' tail words for layout');
+        section.appendChild(paragraph);
+      }
+    });
+    document.querySelector('section.body').appendChild(section);
+    await window.__pandocmd.lineBreaking.refresh(section);
+
+    const paragraphs = Array.from(section.children);
+    const leadingPunctuation = [];
+    paragraphs.forEach((paragraph) => {
+      const punctuation = paragraph.dataset.punctuation;
+      const candidates = Array.from(paragraph.querySelectorAll(
+          '.katex-html > .base, [data-pandocmd-kp-token="word"]',
+      )).filter((element) => element.textContent === punctuation);
+      candidates.forEach((element) => {
+        const previous = element.previousElementSibling;
+        if (previous && previous.matches(
+            '[data-pandocmd-kp-generated="break"]')) {
+          leadingPunctuation.push({
+            kind: paragraph.dataset.kind,
+            width: paragraph.style.width,
+            punctuation: punctuation,
+          });
+        }
+      });
+    });
+    return {
+      generatedBreaks: section.querySelectorAll(
+          '[data-pandocmd-kp-generated="break"]',
+      ).length,
+      laidOutKinds: Array.from(new Set(paragraphs.filter(
+          (paragraph) => paragraph.dataset.pandocmdKpStatus === 'laid-out',
+      ).map((paragraph) => paragraph.dataset.kind))).sort(),
+      leadingPunctuation: leadingPunctuation,
+    };
+  });
+
+  expect(result.generatedBreaks).toBeGreaterThan(0);
+  expect(result.laidOutKinds).toEqual([
+    'math-comma',
+    'math-period',
+    'optional-semicolon',
+    'spaced-closing-parenthesis',
+  ]);
+  expect(result.leadingPunctuation).toEqual([]);
 });
 
 test('uses KaTeX base groups as visible math boxes', async ({page}) => {

@@ -855,6 +855,10 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; }
     font-style: italic;
 }
 
+.theorem-environment > p:first-of-type {
+    margin-top: 0;
+}
+
 .algorithm {
     position: relative;
     container-type: inline-size;
@@ -917,10 +921,6 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; }
 
 .theorem-header::after {
     content: '.\2002\2002';
-}
-
-.theorem-header + p {
-    display: inline;
 }
 
 .Proof .type {

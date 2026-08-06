@@ -99,6 +99,54 @@ local function theorem_name_inlines(raw)
   return {}
 end
 
+local function is_source_line_label(block)
+  return block.t == "RawBlock"
+    and block.format == "html"
+    and block.text:find('class="source-line-link"', 1, true) ~= nil
+end
+
+local function is_blank_inline(inline)
+  return inline.t == "Space"
+    or inline.t == "SoftBreak"
+    or inline.t == "LineBreak"
+    or (inline.t == "Str" and inline.text == "")
+end
+
+local function is_display_math_inline(inline)
+  return (inline.t == "Math" and inline.mathtype == "DisplayMath")
+    or (inline.t == "Span"
+      and (util.has_class(inline.attr, "equation")
+        or util.has_class(inline.attr, "math-container")))
+end
+
+local function is_standalone_display_math(block)
+  local only = nil
+  for _, inline in ipairs(block.content) do
+    if not is_blank_inline(inline) then
+      if only then
+        return false
+      end
+      only = inline
+    end
+  end
+  return only ~= nil and is_display_math_inline(only)
+end
+
+local function prepend_header_to_body(block, header)
+  for _, child in ipairs(block.content) do
+    if is_source_line_label(child) then
+      -- The label is positioned beside the theorem and is not body content.
+    elseif (child.t == "Para" or child.t == "Plain")
+      and not is_standalone_display_math(child) then
+      child.content:insert(1, header)
+      return true
+    else
+      return false
+    end
+  end
+  return false
+end
+
 function M.render_blocks(blocks)
   return util.walk_blocks(blocks, function(block)
     local attributes = block.t == "Div" and block.attr.attributes
@@ -113,7 +161,10 @@ function M.render_blocks(blocks)
       if attributes.title then
         parts:insert(pandoc.Span(theorem_name_inlines(attributes.title), util.attr("", { "name" })))
       end
-      block.content:insert(1, pandoc.Plain({ pandoc.Span(parts, util.attr("", { "theorem-header" })) }))
+      local header = pandoc.Span(parts, util.attr("", { "theorem-header" }))
+      if not prepend_header_to_body(block, header) then
+        block.content:insert(1, pandoc.Plain({ header }))
+      end
     end
     return block
   end)

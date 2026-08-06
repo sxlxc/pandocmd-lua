@@ -27,6 +27,15 @@
       '\\u200c\\u200d\\u3040-\\u30ff\\u3400-\\u9fff\\uac00-\\ud7af]',
   );
   const BIDI_CONTROL = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+  // JavaScript does not expose Unicode's Line_Break property. Combine the
+  // closing/final punctuation categories with the common terminal and infix
+  // marks that must stay with the preceding inline content.
+  const NONSTARTING_PUNCTUATION = new RegExp(
+      '^(?:[\\p{Pe}\\p{Pf}]|[!%,.:;?\\u00b0\\u2026\\u2030\\u2031' +
+      '\\u203c\\u2047-\\u2049\\u3001\\u3002\\u30fb\\uff01\\uff05' +
+      '\\uff0c\\uff0e\\uff1a\\uff1b\\uff1f])',
+      'u',
+  );
   const ITEM_LIMIT = 4096;
   const FRAME_BUDGET = 8;
   const rootNamespace = window.__pandocmd = window.__pandocmd || {};
@@ -297,6 +306,7 @@
         return null;
       }
       tokenizeChildren(container, run);
+      protectPunctuationBreaks(run);
       if (run.itemLimitExceeded) {
         fallback(run, 'item-limit');
         return null;
@@ -450,6 +460,31 @@
       return true;
     }
 
+    function protectPunctuationBreaks(run) {
+      run.tokens.forEach(function(token, index) {
+        if (!startsWithNonstartingPunctuation(token)) {
+          return;
+        }
+        for (let previous = index - 1; previous >= 0; previous -= 1) {
+          const boundary = run.tokens[previous];
+          if (!/^(space|optional|math-break)$/.test(boundary.kind)) {
+            break;
+          }
+          boundary.noBreak = true;
+        }
+      });
+    }
+
+    function startsWithNonstartingPunctuation(token) {
+      let text = '';
+      if (token.kind === 'word') {
+        text = token.text;
+      } else if (token.kind === 'atomic') {
+        text = token.element.textContent || '';
+      }
+      return NONSTARTING_PUNCTUATION.test(text.trimStart());
+    }
+
     function mathPenalty(base) {
       if (base.querySelector('.nobreak')) {
         return Typeset.linebreak.infinity;
@@ -544,6 +579,13 @@
       let itemCount = run.itemCount;
       for (let index = 0; index < run.tokens.length; index += 1) {
         const token = run.tokens[index];
+        if (token.kind === 'space' && token.noBreak) {
+          itemCount += 1;
+          if (itemCount > ITEM_LIMIT) {
+            run.itemLimitExceeded = true;
+            return false;
+          }
+        }
         if (token.kind !== 'word') {
           continue;
         }
@@ -695,6 +737,11 @@
             }
           });
         } else if (token.kind === 'space') {
+          if (token.noBreak) {
+            node = Typeset.linebreak.penalty(
+                0, Typeset.linebreak.infinity, 0);
+            run.nodes.push(node);
+          }
           node = Typeset.linebreak.glue(
               token.width, token.width / 2, token.width / 3);
           node.dom = token;
@@ -705,7 +752,8 @@
           run.nodes.push(node);
         } else if (token.kind === 'optional' || token.kind === 'math-break') {
           node = Typeset.linebreak.penalty(
-              0, token.penalty === undefined ? 0 : token.penalty, 0);
+              0, token.noBreak ? Typeset.linebreak.infinity :
+                (token.penalty === undefined ? 0 : token.penalty), 0);
           node.dom = {kind: token.kind, anchor: token.element};
           run.nodes.push(node);
         } else if (token.kind === 'forced') {

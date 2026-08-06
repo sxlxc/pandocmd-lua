@@ -2,6 +2,7 @@ package.path = "lua/?.lua;" .. package.path
 
 local source_lines = require("source-line-preprocess")
 local source_line_annotations = require("source-lines")
+local theorems = require("theorems")
 
 local reader_format = "markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex"
 
@@ -447,3 +448,68 @@ rich_image_doc:walk({
   end,
 })
 assert_equal("image caption source-line traversal", rich_image_caption, "rich alt")
+
+local theorem_markdown = source_lines.annotate_source_lines(20, {
+  "::: {#first-source-line-theorem .theorem}",
+  "The first theorem establishes the numbering.",
+  ":::",
+  "",
+  "::: {#second-source-line-theorem .theorem}",
+  "The second theorem keeps its first paragraph.",
+  "",
+  "Its second paragraph has an independent source line.",
+  ":::",
+  "",
+  "::: {.proof}",
+  "Choose a maximum matching of the original presentation. It matches $r$ elements of $X$ to $r$ distinct vertices of $R$. Match the $k-r$ universal elements of $Z$ to the remaining presentation vertices. Thus the new presentation has rank $k$.",
+  "",
+  "The restriction...",
+  ":::",
+})
+local theorem_doc = pandoc.read(theorem_markdown, reader_format)
+theorem_doc = source_lines.strip_source_line_markers_from_math(theorem_doc)
+theorem_doc.blocks = source_line_annotations.annotate_blocks(nil, theorem_doc.blocks)
+local theorem_specs = theorems.build_block_specs(theorem_doc.meta)
+theorem_doc.blocks = theorems.preprocess_blocks(theorem_doc.blocks, theorem_specs)
+theorem_doc.blocks = theorems.render_blocks(theorem_doc.blocks)
+
+local second_theorem = theorem_doc.blocks[2]
+local first_theorem_body = second_theorem.content[2]
+local second_theorem_body = second_theorem.content[3]
+assert_equal("fenced theorem type", second_theorem.t, "Div")
+assert_equal("fenced theorem source line", second_theorem.attr.attributes["data-source-line"], "25")
+assert_equal("fenced theorem index", second_theorem.attr.attributes.index, "2")
+assert_equal(
+  "fenced theorem source label",
+  second_theorem.content[1].text:find(">25</", 1, true) ~= nil,
+  true
+)
+assert_equal("theorem first body stays a paragraph", first_theorem_body.t, "Para")
+assert_equal("theorem header is inside first paragraph", first_theorem_body.content[1].t, "Span")
+assert_equal(
+  "theorem header class",
+  first_theorem_body.content[1].attr.classes[1],
+  "theorem-header"
+)
+assert_equal("theorem first body text follows header", first_theorem_body.content[2].text, "The")
+assert_equal("theorem second body source wrapper", second_theorem_body.t, "Div")
+assert_equal(
+  "theorem second body source line",
+  second_theorem_body.attr.attributes["data-source-line"],
+  "27"
+)
+
+local proof = theorem_doc.blocks[3]
+local proof_first_body = proof.content[2]
+local proof_math_count = 0
+for _, inline in ipairs(proof_first_body.content) do
+  if inline.t == "Math" then
+    proof_math_count = proof_math_count + 1
+  end
+end
+assert_equal("fenced proof type", proof.t, "Div")
+assert_equal("fenced proof source line", proof.attr.attributes["data-source-line"], "31")
+assert_equal("proof first body stays a paragraph", proof_first_body.t, "Para")
+assert_equal("proof header is inside first paragraph", proof_first_body.content[1].t, "Span")
+assert_equal("proof first body text follows header", proof_first_body.content[2].text, "Choose")
+assert_equal("proof inline math is retained", proof_math_count, 7)

@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import struct
@@ -616,6 +617,102 @@ class PandocIntegrationTests(unittest.TestCase):
         html = (self.paths.html / (slug + ".html")).read_text(encoding="utf-8")
         self.assertIn("/pandocmd-preview/assets/katex/katex.min.css", html)
         self.assertIn("/pandocmd-preview/assets/katex/katex.min.js", html)
+
+    def test_fenced_div_paragraphs_keep_source_lines_and_theorem_headers(self):
+        project = self.project()
+        source = project / "theorems.md"
+        source.write_text(
+            "::: {#first .theorem}\n"
+            "The first theorem establishes the numbering.\n"
+            ":::\n\n"
+            "::: {#second .theorem}\n"
+            "The second theorem begins in its first paragraph.\n\n"
+            "Its second paragraph has a separate source line.\n"
+            ":::\n\n"
+            "::: {#proof .proof}\n"
+            "Choose a maximum matching of the original presentation.  It "
+            "matches $r$ elements of $X$ to $r$ distinct vertices of $R$.  "
+            "Match the $k-r$ universal elements of $Z$ to the remaining "
+            "presentation vertices.  Thus the new presentation has rank $k$.\n\n"
+            "Its second paragraph remains a separate block.\n"
+            ":::\n\n"
+            "::: {#generic .notice}\n"
+            "The generic fenced div retains its paragraph.\n"
+            ":::\n",
+            encoding="utf-8",
+        )
+        slug = "theorem-paragraph"
+        result = preview.build_preview(self.paths, source, slug)
+        self.assertTrue(result.succeeded, result.diagnostics)
+        html = (self.paths.html / (slug + ".html")).read_text(encoding="utf-8")
+
+        theorem_start = html.index('<div id="second"')
+        opening_end = html.index(">", theorem_start)
+        next_paragraph = html.index('<div class="source-line"', opening_end)
+        opening = html[theorem_start:opening_end]
+        first_body = html[opening_end + 1:next_paragraph]
+        paragraph_start = first_body.index("<p>")
+        paragraph_end = first_body.index("</p>", paragraph_start)
+        first_paragraph = first_body[paragraph_start:paragraph_end]
+
+        self.assertIn('data-source-line="6"', opening)
+        self.assertRegex(
+            first_body,
+            re.compile(r'class="source-line-link"[^>]*>6</a>', re.DOTALL),
+        )
+        self.assertRegex(
+            first_paragraph,
+            re.compile(
+                r'class="theorem-header".*class="index">2</span>'
+                r'.*The second theorem begins',
+                re.DOTALL,
+            ),
+        )
+        self.assertIn('data-source-line="8"', html[next_paragraph:])
+
+        proof_start = html.index('<div id="proof"')
+        proof_opening_end = html.index(">", proof_start)
+        proof_next_paragraph = html.index(
+            '<div class="source-line"', proof_opening_end
+        )
+        proof_opening = html[proof_start:proof_opening_end]
+        proof_first_body = html[proof_opening_end + 1:proof_next_paragraph]
+        proof_paragraph_start = proof_first_body.index("<p>")
+        proof_paragraph_end = proof_first_body.index(
+            "</p>", proof_paragraph_start
+        )
+        proof_first_paragraph = proof_first_body[
+            proof_paragraph_start:proof_paragraph_end
+        ]
+        self.assertIn('data-source-line="12"', proof_opening)
+        self.assertRegex(
+            proof_first_paragraph,
+            re.compile(
+                r'class="theorem-header".*class="type">Proof</span>'
+                r'.*Choose a maximum matching',
+                re.DOTALL,
+            ),
+        )
+        self.assertEqual(
+            proof_first_paragraph.count('class="math inline"'),
+            7,
+        )
+        self.assertIn("Thus the new presentation has rank", proof_first_paragraph)
+
+        generic_start = html.index('<div id="generic"')
+        generic_opening_end = html.index(">", generic_start)
+        generic_end = html.index("</div>", generic_opening_end)
+        generic_opening = html[generic_start:generic_opening_end]
+        generic_body = html[generic_opening_end + 1:generic_end]
+        self.assertIn('data-source-line="18"', generic_opening)
+        self.assertRegex(
+            generic_body,
+            re.compile(r'class="source-line-link"[^>]*>18</a>', re.DOTALL),
+        )
+        self.assertIn(
+            "<p>The generic fenced div retains its paragraph.</p>",
+            generic_body,
+        )
 
     def test_remote_and_raw_html_images_remain_external(self):
         project = self.project()
